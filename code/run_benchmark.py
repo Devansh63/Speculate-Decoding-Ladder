@@ -3,15 +3,35 @@
 
 One rung, one context bucket, one run. Records acceptance by draft position,
 not just throughput, and writes the output token ids so a later run can be
-checked for byte equality against the no-speculation arm.
+checked against the no-speculation arm.
 
 Example:
-    python3 run_benchmark.py --rung off    --bucket 2K --limit 100 ...
-    python3 run_benchmark.py --rung ngram  --bucket 2K --limit 100 ...
-    python3 run_benchmark.py --rung dflash --bucket 2K --limit 100 ...
+    python3 run_benchmark.py --rung off    --bucket 2K --limit 50 ...
+    python3 run_benchmark.py --rung ngram  --bucket 2K --limit 50 ...
+    python3 run_benchmark.py --rung dflash --bucket 2K --limit 50 ...
 
 Every run must be launched with VLLM_USE_V2_MODEL_RUNNER=0 so that all rungs
 execute on the stable model runner. The script refuses to start otherwise.
+
+Harness v2, 5 Oct 2026. Three additions, all of them additive, none of them
+changing a default, so a job already queued against v1 produces the same
+measurement with more recorded alongside it:
+
+  1. Full token ids per request, not only a SHA-1. A single flipped token in a
+     256 token generation changes the hash, so hashes cannot distinguish "one
+     token differs" from "completely different answer". Both occur, and only
+     the first is acceptable. Roughly 60 KB per arm.
+  2. Per request timing where vLLM exposes it, so a paired bootstrap over
+     prompts is possible. Without it there is one aggregate number per arm and
+     no way to put an interval on it.
+  3. A switch for prefix caching, default unchanged (on). Caching is a known
+     source of run to run non-determinism because a request that hits the
+     cache and one that recomputes do not follow bitwise identical paths.
+     Having the switch lets us measure how much of the noise floor it owns.
+
+Everything added here is wrapped so that a failure records a null and the
+measurement still completes. Losing a run to a bug in an instrumentation path
+would cost hours of queue time for data we already know how to get.
 """
 
 import argparse
@@ -24,6 +44,8 @@ import sys
 import time
 
 from vllm import LLM, SamplingParams
+
+HARNESS_VERSION = "v2-2026-10-05"
 
 
 def parse_args():
@@ -42,6 +64,14 @@ def parse_args():
     p.add_argument("--max-num-seqs", type=int, default=0, help="concurrency cap; 0 = engine default")
     p.add_argument("--outdir", required=True, help="Directory for results")
     p.add_argument("--prompt-style", choices=["qa", "context"], default="qa")
+    # Default None means "leave the engine alone", which is what every run so
+    # far did. Only an explicit flag changes behaviour.
+    p.add_argument("--prefix-caching", dest="prefix_caching", action="store_true", default=None,
+                   help="force prefix caching on")
+    p.add_argument("--no-prefix-caching", dest="prefix_caching", action="store_false",
+                   help="force prefix caching off; use for determinism controls")
+    p.add_argument("--no-token-ids", action="store_true",
+                   help="skip storing full token ids (they are about 60 KB per arm)")
     return p.parse_args()
 
 
@@ -141,6 +171,36 @@ def diff(before, after):
     return d
 
 
+def request_timing(o):
+    """Per request timing, if this vLLM build exposes it.
+
+    The field set differs across versions and may be absent entirely on the V1
+    engine, so every read is guarded and a miss records nulls rather than
+    raising. Latency and time to first token are what a paired bootstrap over
+    prompts needs; without them there is one aggregate number per arm and no
+    way to attach an interval to it.
+    """
+    out = {}
+    try:
+        m = getattr(o, "metrics", None)
+        if m is None:
+            return out
+        for field in ("arrival_time", "first_scheduled_time", "first_token_time",
+                      "last_token_time", "finished_time", "time_in_queue"):
+            v = getattr(m, field, None)
+            if isinstance(v, (int, float)):
+                out[field] = float(v)
+        a = out.get("arrival_time")
+        if a is not None:
+            if out.get("finished_time") is not None:
+                out["latency_s"] = out["finished_time"] - a
+            if out.get("first_token_time") is not None:
+                out["ttft_s"] = out["first_token_time"] - a
+    except Exception as e:
+        out["error"] = repr(e)
+    return out
+
+
 def main():
     args = parse_args()
 
@@ -154,11 +214,16 @@ def main():
 
     os.makedirs(args.outdir, exist_ok=True)
     run_id = f"{args.rung}_{args.bucket}_k{args.k or 0}_n{args.limit}_s{args.seed}_c{args.max_num_seqs}"
+    if args.prefix_caching is False:
+        # Keep the determinism control in its own files rather than letting it
+        # overwrite the matching normal run.
+        run_id += "_nopc"
 
     prompts, ids = build_prompts(args.dataset, args.limit, args.prompt_style)
     if not prompts:
         sys.exit(f"no prompts read from {args.dataset}")
     print(f"[{run_id}] {len(prompts)} prompts from {args.dataset}", flush=True)
+    print(f"[{run_id}] harness {HARNESS_VERSION}", flush=True)
 
     llm = LLM(
         model=args.model,
@@ -167,6 +232,8 @@ def main():
         max_model_len=args.max_model_len,
         gpu_memory_utilization=args.gpu_mem_util,
         **({"max_num_seqs": args.max_num_seqs} if args.max_num_seqs else {}),
+        **({"enable_prefix_caching": args.prefix_caching}
+           if args.prefix_caching is not None else {}),
         trust_remote_code=True,
         disable_log_stats=False,  # required, or get_metrics returns nothing
         **spec_kwargs(args),
@@ -186,24 +253,35 @@ def main():
     gen_tokens = sum(len(o.outputs[0].token_ids) for o in outputs)
     prompt_tokens = sum(len(o.prompt_token_ids) for o in outputs)
 
-    # Per request: token ids hashed, so the no-speculation run can be compared
-    # against every speculative run without storing the text twice.
+    # Per request. The token ids are the point: a SHA-1 says two generations
+    # differ, it cannot say whether one token moved or the whole answer did.
+    # On a continuous batching server those are very different claims, and the
+    # losslessness result turns on telling them apart.
     per_request = []
+    timing_seen = 0
     for rid, o in zip(ids, outputs):
         tok = list(o.outputs[0].token_ids)
-        per_request.append(
-            {
-                "id": rid,
-                "prompt_tokens": len(o.prompt_token_ids),
-                "gen_tokens": len(tok),
-                "sha1": hashlib.sha1(",".join(map(str, tok)).encode()).hexdigest(),
-            }
-        )
+        rec = {
+            "id": rid,
+            "prompt_tokens": len(o.prompt_token_ids),
+            "gen_tokens": len(tok),
+            "sha1": hashlib.sha1(",".join(map(str, tok)).encode()).hexdigest(),
+            "finish_reason": getattr(o.outputs[0], "finish_reason", None),
+        }
+        if not args.no_token_ids:
+            rec["token_ids"] = tok
+        t = request_timing(o)
+        if t:
+            rec["timing"] = t
+            if "latency_s" in t:
+                timing_seen += 1
+        per_request.append(rec)
 
     import torch  # imported late so the runner check fails fast without CUDA init
 
     record = {
         "run_id": run_id,
+        "harness": HARNESS_VERSION,
         "rung": args.rung,
         "bucket": args.bucket,
         "k": args.k or (5 if args.rung == "ngram" else 15 if args.rung == "dflash" else 0),
@@ -211,6 +289,7 @@ def main():
         "max_tokens": args.max_tokens,
         "seed": args.seed,
         "max_num_seqs": args.max_num_seqs,
+        "prefix_caching": args.prefix_caching,  # None means engine default
         "prompt_style": args.prompt_style,
         "dataset": args.dataset,
         "model": args.model,
@@ -219,6 +298,7 @@ def main():
         "gen_tokens": gen_tokens,
         "prompt_tokens": prompt_tokens,
         "throughput_tok_s": gen_tokens / elapsed if elapsed else 0.0,
+        "per_request_timing": timing_seen,  # how many requests carried usable timing
         "spec": diff(before, after),
         "env": {
             "vllm": __import__("vllm").__version__,
@@ -242,6 +322,7 @@ def main():
     print("\n=== " + run_id + " ===")
     print(f"elapsed {elapsed:.1f}s   generated {gen_tokens} tok   "
           f"{record['throughput_tok_s']:.1f} tok/s")
+    print(f"per request timing available on {timing_seen}/{len(per_request)} requests")
     if s.get("drafts"):
         print(f"drafts {s['drafts']}   mean accepted length {s['mean_accepted_length']:.3f}")
         print(f"draft acceptance rate {s.get('draft_acceptance_rate', 0):.3f}")
