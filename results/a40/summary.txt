@@ -22,6 +22,15 @@
      8K    12   dflash   7   50    102.1     1.02  1.996  1.990  1.000  1.944  1.927  0.457
      8K    12    ngram   5   50     95.3     0.96  2.813  1.322  0.178  1.383  2.813  0.571
      8K    12      off   0   50     99.7     1.00  1.000  1.000  0.000  1.000              
+    32K     1   dflash   7   25     12.3     0.83  1.459  1.459  0.998  1.766  1.448  0.296
+    32K     1    ngram   5   25     16.1     1.08  2.844  1.390  0.212  1.289  2.844  0.552
+    32K     1      off   0   25     14.9     1.00  1.000  1.000  0.000  1.000              
+    32K     2   dflash   7   25     17.3     0.91  1.418  1.417  0.997  1.550  1.410  0.280
+    32K     2    ngram   5   25     19.8     1.05  2.615  1.304  0.188  1.246  2.615  0.525
+    32K     2      off   0   25     18.9     1.00  1.000  1.000  0.000  1.000              
+    32K     4   dflash   7   25     19.1     0.88  1.432  1.431  0.998  1.624  1.425  0.287
+    32K     4    ngram   5   25     21.5     0.99  2.783  1.366  0.205  1.376  2.783  0.553
+    32K     4      off   0   25     21.6     1.00  1.000  1.000  0.000  1.000              
 
 tauC  mean accepted length, conditional on a draft being proposed
 tauE  effective tokens per decode step, counting steps with no draft
@@ -46,6 +55,12 @@ draft counters
      8K     4    ngram   5      1650       8243       3064     12800     0.372
      8K    12   dflash   7      6433      45031       6407     12800     0.142
      8K    12    ngram   5      1721       8602       3120     12800     0.363
+    32K     1   dflash   7      4379      30653       2012      6400     0.066
+    32K     1    ngram   5       974       4868       1796      6400     0.369
+    32K     2   dflash   7      4502      31514       1883      6400     0.060
+    32K     2    ngram   5       924       4618       1492      6400     0.323
+    32K     4   dflash   7      4463      31241       1927      6400     0.062
+    32K     4    ngram   5       962       4807       1715      6400     0.357
 
 acceptance by draft position
      2K c=auto   dflash k=7   0.601, 0.360, 0.218, 0.136, 0.091, 0.065, 0.048
@@ -63,6 +78,12 @@ acceptance by draft position
      8K c=4       ngram k=5   0.577, 0.435, 0.334, 0.276, 0.235
      8K c=12     dflash k=7   0.457, 0.221, 0.118, 0.076, 0.054, 0.040, 0.030
      8K c=12      ngram k=5   0.571, 0.428, 0.322, 0.266, 0.225
+    32K c=1      dflash k=7   0.296, 0.087, 0.038, 0.017, 0.010, 0.007, 0.004
+    32K c=1       ngram k=5   0.552, 0.416, 0.335, 0.286, 0.255
+    32K c=2      dflash k=7   0.280, 0.077, 0.030, 0.014, 0.008, 0.005, 0.003
+    32K c=2       ngram k=5   0.525, 0.363, 0.284, 0.237, 0.207
+    32K c=4      dflash k=7   0.287, 0.084, 0.032, 0.015, 0.008, 0.004, 0.002
+    32K c=4       ngram k=5   0.553, 0.398, 0.321, 0.275, 0.235
 
 concurrency sensitivity, per bucket and rung
      2K  dflash k=7   c=1: 1.86x (tauC 2.54)   c=8: 1.49x (tauC 2.51)   c=32: 1.03x (tauC 2.47)
@@ -73,9 +94,15 @@ concurrency sensitivity, per bucket and rung
         still above 1.00x at the widest concurrency tested (12)
      8K   ngram k=5   c=1: 1.14x (tauC 2.76)   c=4: 1.07x (tauC 2.86)   c=12: 0.96x (tauC 2.81)
         crosses 1.00x between concurrency 4 and 12, interpolated at about 8.9
+    32K  dflash k=7   c=1: 0.83x (tauC 1.46)   c=2: 0.91x (tauC 1.42)   c=4: 0.88x (tauC 1.43)
+        already below 1.00x at the narrowest concurrency tested (1)
+    32K   ngram k=5   c=1: 1.08x (tauC 2.84)   c=2: 1.05x (tauC 2.61)   c=4: 0.99x (tauC 2.78)
+        crosses 1.00x between concurrency 2 and 4, interpolated at about 3.7
 
 decay D = 1 - AL(long) / AL(2K), at a common truncation of k=5, matched on concurrency
   dflash k=7 c=1: 2K 2.421 -> 8K 1.891   D = +0.219
+  dflash k=7 c=1: 2K 2.421 -> 32K 1.448   D = +0.402
   ngram k=5 c=1: 2K 2.889 -> 8K 2.762   D = +0.044
+  ngram k=5 c=1: 2K 2.889 -> 32K 2.844   D = +0.016
 
 Note: single runs, no confidence intervals. The milestone needs a paired bootstrap over prompts before any claim is made.
