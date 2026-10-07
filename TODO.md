@@ -7,142 +7,112 @@ For what was already done, see `LOG.md`. For what we learned, see
 
 ---
 
-## Blocked on: job 22713173, A40 32K
+## RESOLVED: the scope decision
 
-Running as of 6 Oct. Everything below the decision depends on what it shows.
+**Option B. The context axis carries the paper.** The A100 rebuild drops from
+urgent to optional.
 
-**What to check when it lands:**
+The 32K cell (job 22713173) decided it. At concurrency 1 the ranking of the
+rungs inverts across the context axis: DFlash 1.86x to 0.83x, n-gram 1.16x to
+1.08x, so the cheap retrieval rung overtakes the trained head and the trained
+head becomes actively harmful. Both predictions from the 8K note held. Details
+in `notes/2026-10-06-32k-inversion.md`.
 
-```bash
-grep '^###' /projects/bikd/$USER/Speculative_Ladder/logs/phase0-22713173.out   # 9 lines = all arms ran
-grep -i 'maximum concurrency' /projects/bikd/$USER/Speculative_Ladder/logs/phase0-22713173.out
-module load cray-python/3.12.12
-python3 /projects/bikd/$USER/Speculative_Ladder/ladder/scripts/summarize.py \
-        /projects/bikd/$USER/Speculative_Ladder/results/a40
-bash /projects/bikd/$USER/Speculative_Ladder/ladder/scripts/push_results.sh "A40 32K sweep, job 22713173"
-```
+That is a stronger claim than the hardware axis was likely to produce, it is
+already established on three points, and it costs nothing more to defend.
 
-The concurrency check matters more here than anywhere else: A40 fits about
-160,912 tokens of KV, so a 32K request takes roughly a fifth of the cache and
-the ceiling is near 4.9. The grid asks for 1, 2 and 4. If vLLM reports a
-maximum below 4, the top row ran at a lower concurrency than its label claims.
-
-**The two predictions it tests:**
-
-1. n-gram overtakes DFlash at 32K. The ranking of the rungs inverts along the
-   context axis.
-2. DFlash falls below 1.0x even at concurrency 1, ceasing to pay at long
-   context under any load.
+**Still tell the professor.** He approved a scope that included a hardware
+comparison, and dropping it is his call as much as yours. Lead with the
+inversion; it is a better result than what was promised, which makes the
+conversation an easy one. He has also offered more compute, so the hardware
+axis may still be affordable as a bonus rather than a core deliverable.
 
 ---
 
-## THE DECISION: rescue the hardware axis, or go deep on context?
+## Highest value remaining: the k=1 experiment
 
-This is the real open question and it is not technical. Both paths are
-reasonable; the budget does not cover both.
+**DFlash at 32K may not be broken, just misconfigured.** Its acceptance by
+position at 32K is `0.296, 0.087, 0.038, ...`, dead after position two, while
+the fitted marginal cost is 0.109 per draft position. So position 2 already
+costs more than it returns and **the optimal k is 1, not 7**. At k=1 the model
+gives tau 1.296, R about 1.109, speedup about **1.17x**, which would beat
+n-gram's 1.08x.
 
-### Option A: rebuild, restore the hardware axis
+If it holds, the paper's prescription becomes rung *and* draft length, with k
+shrinking as context grows. Prescriptive beats descriptive.
 
-Rebuild vLLM from source at commit `bf13ecc2f` with
-`TORCH_CUDA_ARCH_LIST="8.0;8.6;9.0"`, then re-run the A40 cells so the whole
-table comes from one binary.
+One job, concurrency 1 only, A40:
 
-- **Cost:** hours of login-node compiling (no GPU time), plus roughly 3
-  GPU-hours of A40 re-runs, plus A100 cells on top.
-- **Buys:** the hardware comparison the proposal committed to. A40 at ridge
-  point 107 against A100 at 201, and possibly H200 at 206. Without it, the R
-  half of `tau / R` is never varied by hardware, which is the whole reason for
-  separating the two terms.
-- **Risk:** the rebuild might not fix it. The failure is not understood yet,
-  only localised. sm_80 cubins are present in the current binary and still do
-  not execute. Rebuilding is the obvious move but it is not a guaranteed one.
-- **Also:** re-running A40 invalidates nothing already learned, but it does
-  mean the 2K, 8K and 32K cells are spent twice.
+```bash
+cd /projects/bikd/$USER/Speculative_Ladder/ladder/scripts
+sbatch --time=01:00:00 --export=ALL,BUCKET=32K,LIMIT=25,CONC="1" phase0.sh
+```
 
-### Option B: abandon the hardware axis, go deep on context
+`phase0.sh` hardcodes `k=7` for DFlash, so this needs either a small edit to
+parameterise k, or a direct `run_benchmark.py` call with `--k 1` and `--k 2`.
+Two arms plus the shared baseline is about 20 minutes.
 
-Keep the current binary and A40 only. Spend the remaining budget on 32K, the
-n-gram coverage frontier, the k sweep, and repeated runs for confidence
-intervals.
+---
 
-- **Cost:** fits the remaining budget comfortably.
-- **Buys:** depth on the axis where the results are strongest. Finding 7 (the
-  rungs decaying in opposite directions) is more surprising than anything the
-  hardware axis was likely to produce, and it is already half-established.
-- **Gives up:** a committed deliverable. The proposal promised a hardware
-  comparison and the professor approved it on that basis. Dropping it needs to
-  be raised with him, not quietly reframed.
-- **Mitigation:** the R model can *predict* other hardware without measuring
-  it, and the Cerebras extrapolation is a natural discussion-section use of
-  that. Prediction without validation is weaker than measurement, and a
-  reviewer will say so.
+## Confidence intervals: the plan changed
 
-### What decides it
+```
+per request timing available on 0/25 requests
+```
 
-**The 32K cell.** If n-gram overtakes DFlash there, the context axis carries
-the paper on its own, the inversion is the headline result, and the rebuild
-becomes optional rather than urgent. If the rungs hold their 8K ordering, the
-context story is a decay curve rather than an inversion, which is weaker, and
-the hardware axis is worth rescuing.
+This vLLM build does not populate per-request metrics on the V1 engine, so the
+**paired bootstrap over prompts is not possible**. Harness v2's timing code is
+inert.
 
-**Either way, tell the professor before committing.** He approved a scope that
-included hardware. A change of that size is his call as much as yours, and he
-has already said more compute is available, which may make the choice moot.
+The remaining path is **repeated runs**, estimating run-to-run variance.
+Coarser, but the only option short of patching vLLM.
+
+- [ ] Sahil's `SEED=5678` 2K repeat, already assigned. This is now foundational
+      rather than optional.
+- [ ] **Repeat the 32K cell at least twice.** The headline claim lives there
+      and currently rests on 25 prompts in a single run. Highest priority after
+      the k experiment.
 
 ---
 
 ## Immediate
 
-- [ ] **Cancel `scancel 22713396`** (ssashi, queued on A100). A100 cannot run
-      this build; the job will burn a reservation and fail.
-- [ ] **Diagnose Sahil's jobs 22713193 and 22713194.** Both FAILED in 7
-      seconds with exit `0:53`, one on A100 and one on A40, so it is not the
-      A100 kernel problem. Seven seconds means setup. Check whether the log
-      files exist at all; if Slurm could not create the output file, that is
-      the answer and it is a permissions issue on the logs directory, not the
-      venv. The venv group theory was wrong: `id ssashi` shows `grp_202` is
-      his primary group, so he could read it all along.
-- [ ] **Request an allocation top-up.** Roughly 3 GPU-hours remain against a
-      10-hour deposit, and Option A needs more than that. The professor has
-      confirmed more is available. Ask before a job is refused, not after.
-      Mention the balance lag while you are at it: `accounts` has not tracked
-      actual usage closely.
+- [ ] **Tell the professor** about the scope change and the inversion result.
+- [ ] **Request an allocation top-up.** Roughly 1 to 2 GPU-hours remain.
+- [ ] **Diagnose Sahil's 7-second failures** (22713193, 22713194). Both on
+      different partitions, so not the A100 kernel problem. Seven seconds means
+      setup. Check whether the log files exist at all; if Slurm could not create
+      the output file, that is the answer.
 
 ---
 
 ## Backlog, ordered by value per GPU-hour
 
-- [ ] **Confidence intervals.** Every number is a single run, and two measured
-      speedups (1.02x, 1.07x) sit close enough to 1.0 that a reader will ask
-      whether they differ from noise. Harness v2 records per-request latency,
-      so a paired bootstrap is possible, but no data with it exists yet. This
-      is the cheapest fix to the most likely reviewer objection.
-- [ ] **n-gram coverage frontier.** Vary `prompt_lookup_min` (currently 3) to
-      trade acceptance for coverage. n-gram's ceiling at 13% coverage is 1.25x
-      even with free verification. At 8K its coverage already rose to 16%
-      unassisted, which makes the frontier more interesting, not less. Cheap,
-      concurrency-1 runs only, and as far as we have seen unpublished.
-- [ ] **k sweep at high concurrency.** Fitting R's slope per draft position
-      predicts the optimal k shrinks with load: about 7 at concurrency 1, 3 at
-      32. Only the k=15 point supports the direction. One extra arm tests it.
+- [ ] **k sweep across buckets.** Finding 9 says optimal k shrinks with
+      context, and the 2K k=15 result says it shrinks with load too. A small
+      grid of k against bucket would turn two anecdotes into a surface.
+- [ ] **n-gram coverage frontier.** Vary `prompt_lookup_min` (currently 3).
+      n-gram's coverage rose on its own from 0.132 to 0.212 across the context
+      range; forcing it higher trades acceptance for coverage. Needs a flag in
+      `run_benchmark.py` first.
+- [ ] **Drafter memory cost.** At 32K the DFlash arms got 20 to 25% less KV
+      cache than the baseline because the head occupies GPU memory, and the
+      concurrency-4 arm cleared its requested concurrency by 0.02. A rung that
+      needs resident weights competes with the KV cache, and that cost appears
+      nowhere in `tau / R`. Worth quantifying as a third axis of cost.
 - [ ] **Prefix-caching-off control.** Splits the two causes of the 0.80%
-      non-determinism floor. `--no-prefix-caching` is already in the harness
-      and writes to its own `_nopc` run id.
-- [ ] **Quality evaluation.** Losslessness was assumed, so task accuracy was
-      never measured. Finding 6 weakens that assumption. Does the 0.65% token
-      divergence change any LongBench answer? LongBench-v2 is multiple choice,
-      so this is cheap to score.
-- [ ] **Count cubins per architecture** in the vLLM fat binary. Free, and it
-      would show whether the build emitted sm_80 for only a subset of kernels,
-      which is the leading explanation for the A100 failure.
+      non-determinism floor. `--no-prefix-caching` is already in the harness.
+- [ ] **Quality evaluation.** LongBench-v2 is multiple choice, so scoring is
+      cheap. Does the 0.65% token divergence change any answer?
 
 ---
 
 ## Deferred, with reasons
 
-| Item | Why it is not being done |
+| Item | Why |
 |---|---|
-| H200 | No sm_90 cubins and no PTX. Needs the same rebuild as A100; folded into Option A. |
-| Cerebras | `sdk.cerebras.ai` is the CSL kernel SDK, not an inference API. Porting a serving stack is not a semester task. Belongs in the discussion as a prediction target: wafer-scale SRAM puts the ridge point roughly an order of magnitude below a GPU's, so the R model predicts speculation is worthless there even at batch 1. Verify the specs from Cerebras's own sheet before writing it. |
-| Second model family | Would address the single-model weakness, but costs a full grid and the project has one GPU. |
-| EAGLE-3 and self-speculative rungs | Stretch rungs in the proposal. Not worth adding while the must-do rungs lack confidence intervals. |
+| A100 rebuild | Root cause known: half the kernels in the vLLM extension have no sm_80 build (`env/a100-sm80-failure.md`). A rebuild with `8.0;8.6;9.0` should fix it and would also cover H200. Now optional, since the context axis carries the paper. Costs hours of compiling plus ~3 GPU-hours of A40 re-runs for a single-binary table. |
+| H200 | Same rebuild. |
+| Cerebras | `sdk.cerebras.ai` is the CSL kernel SDK, not an inference API. Belongs in the discussion as a prediction target: wafer-scale SRAM puts the ridge point an order of magnitude below a GPU's, so the R model predicts speculation is worthless there even at batch 1. Verify specs from Cerebras's own sheet first. |
+| Second model family | Would address the single-model weakness but costs a full grid. |
+| EAGLE-3 and self-speculative rungs | Stretch rungs. Not worth adding while the must-do rungs lack intervals. |
