@@ -22,9 +22,12 @@
      8K    12   dflash   7   50    102.1     1.02  1.996  1.990  1.000  1.944  1.927  0.457
      8K    12    ngram   5   50     95.3     0.96  2.813  1.322  0.178  1.383  2.813  0.571
      8K    12      off   0   50     99.7     1.00  1.000  1.000  0.000  1.000              
-    32K     1   dflash   7   25     12.3     0.83  1.459  1.459  0.998  1.766  1.448  0.296
-    32K     1    ngram   5   25     16.1     1.08  2.844  1.390  0.212  1.289  2.844  0.552
-    32K     1      off   0   25     14.9     1.00  1.000  1.000  0.000  1.000              
+    32K     1   dflash   1   25     11.3     0.76  1.278  1.277  0.996  1.677  1.278  0.278
+    32K     1   dflash   2   25     11.6     0.78  1.336  1.335  0.997  1.704  1.336  0.265
+    32K     1   dflash   4   25     12.0     0.81  1.415  1.415  0.998  1.743  1.415  0.277
+    32K     1   dflash   7   25     12.2     0.83  1.459  1.459  0.998  1.766  1.448  0.296
+    32K     1    ngram   5   25     16.0     1.08  2.844  1.390  0.212  1.290  2.844  0.552
+    32K     1      off   0   25     14.8     1.00  1.000  1.000  0.000  1.000              
     32K     2   dflash   7   25     17.3     0.91  1.418  1.417  0.997  1.550  1.410  0.280
     32K     2    ngram   5   25     19.8     1.05  2.615  1.304  0.188  1.246  2.615  0.525
     32K     2      off   0   25     18.9     1.00  1.000  1.000  0.000  1.000              
@@ -55,6 +58,9 @@ draft counters
      8K     4    ngram   5      1650       8243       3064     12800     0.372
      8K    12   dflash   7      6433      45031       6407     12800     0.142
      8K    12    ngram   5      1721       8602       3120     12800     0.363
+    32K     1   dflash   1      4991       4991       1387      6400     0.278
+    32K     1   dflash   2      4777       9554       1607      6400     0.168
+    32K     1   dflash   4      4517      18068       1876      6400     0.104
     32K     1   dflash   7      4379      30653       2012      6400     0.066
     32K     1    ngram   5       974       4868       1796      6400     0.369
     32K     2   dflash   7      4502      31514       1883      6400     0.060
@@ -78,6 +84,9 @@ acceptance by draft position
      8K c=4       ngram k=5   0.577, 0.435, 0.334, 0.276, 0.235
      8K c=12     dflash k=7   0.457, 0.221, 0.118, 0.076, 0.054, 0.040, 0.030
      8K c=12      ngram k=5   0.571, 0.428, 0.322, 0.266, 0.225
+    32K c=1      dflash k=1   0.278
+    32K c=1      dflash k=2   0.265, 0.072
+    32K c=1      dflash k=4   0.277, 0.084, 0.036, 0.018
     32K c=1      dflash k=7   0.296, 0.087, 0.038, 0.017, 0.010, 0.007, 0.004
     32K c=1       ngram k=5   0.552, 0.416, 0.335, 0.286, 0.255
     32K c=2      dflash k=7   0.280, 0.077, 0.030, 0.014, 0.008, 0.005, 0.003
@@ -94,6 +103,12 @@ concurrency sensitivity, per bucket and rung
         still above 1.00x at the widest concurrency tested (12)
      8K   ngram k=5   c=1: 1.14x (tauC 2.76)   c=4: 1.07x (tauC 2.86)   c=12: 0.96x (tauC 2.81)
         crosses 1.00x between concurrency 4 and 12, interpolated at about 8.9
+    32K  dflash k=1   c=1: 0.76x (tauC 1.28)
+        already below 1.00x at the narrowest concurrency tested (1)
+    32K  dflash k=2   c=1: 0.78x (tauC 1.34)
+        already below 1.00x at the narrowest concurrency tested (1)
+    32K  dflash k=4   c=1: 0.81x (tauC 1.42)
+        already below 1.00x at the narrowest concurrency tested (1)
     32K  dflash k=7   c=1: 0.83x (tauC 1.46)   c=2: 0.91x (tauC 1.42)   c=4: 0.88x (tauC 1.43)
         already below 1.00x at the narrowest concurrency tested (1)
     32K   ngram k=5   c=1: 1.08x (tauC 2.84)   c=2: 1.05x (tauC 2.61)   c=4: 0.99x (tauC 2.78)
