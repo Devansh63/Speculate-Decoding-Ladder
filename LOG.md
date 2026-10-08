@@ -12,7 +12,7 @@ register in `paper/claims.md`. This file is the record of *activity*,
 including the parts that did not work. Every entry that involved a command
 records the command.
 
-Two conventions, because both have bitten us:
+Three conventions, because each has bitten us:
 
 - A Slurm state of `COMPLETED` means the shell script finished its loop, not
   that the measurements succeeded. Job 22685764 is `COMPLETED` and produced
@@ -21,6 +21,8 @@ Two conventions, because both have bitten us:
 - `sbatch` snapshots the batch script at submit time but **not** the files it
   calls at run time. Editing the harness after submitting changes what a
   queued job will do.
+- **`BUCKET` is case sensitive**: `2K`, `8K`, `32K`. The dataset filename is
+  built from it directly, so `2k` fails on a missing file.
 
 ---
 
@@ -32,13 +34,15 @@ The short version, for a teammate starting today. Paths assume
 ```bash
 # 1. environment
 module load cray-python/3.12.12
-source $PROJ/vllm_env_multiarch/bin/activate     # or ~/vllm_env, see 8 Oct
+source $PROJ/vllm_env_multiarch/bin/activate
 
-# 2. submit one cell. phase0.sh reads BUCKET, LIMIT, CONC, KLIST and
-#    LADDER_VENV from the environment, and reads the GPU from nvidia-smi
-#    at run time rather than trusting the partition flag.
+# 2. submit one cell. phase0.sh reads BUCKET, LIMIT, CONC, KLIST,
+#    LADDER_VENV and LADDER_OUT from the environment, and reads the GPU from
+#    nvidia-smi at run time rather than trusting the partition flag.
+#    LADDER_VENV is MANDATORY: without it the script prefers
+#    $HOME/vllm_env, which has no A100 kernels.
 cd $PROJ/ladder/scripts
-sbatch --export=ALL,BUCKET=2k,LIMIT=25,CONC=1 phase0.sh
+sbatch --export=ALL,LADDER_VENV=$PROJ/vllm_env_multiarch,BUCKET=2K,LIMIT=25,CONC=1 phase0.sh
 
 # 3. watch it
 squeue -u $USER
@@ -53,7 +57,7 @@ scripts are the source of truth and this file can drift.
 
 ---
 
-## 8 Oct 2026 — drafter cost isolated, A100 unblocked
+## 8 Oct 2026 — drafter cost isolated, A100 unblocked, teammate unblocked
 
 **The rebuild finished.** `Successfully installed vllm`. Verified by counting
 cubins again:
@@ -125,17 +129,124 @@ is why it barely decays and eventually wins. Write-up in
 a different context distribution, so "first-position acceptance" is not
 independent of k.
 
-**Confirmed the paired bootstrap is not available on this build.**
-`request_timing(o)` is populated on **0 of 25** requests — this vLLM does not
-emit per-request metrics. There is one aggregate number per run and nothing to
-resample, so wall-clock speedup intervals can only come from repeated whole
-runs. Acceptance-side quantities may still be bootstrappable from data already
-on disk if the per-record counters are per-request rather than run-aggregate;
-unchecked.
+**The paired bootstrap is settled, and the answer is mixed.** Inspecting a
+post-v2 per-request file:
+
+```bash
+python3 -c "
+import json
+d=json.load(open('results/a40/perreq_dflash_32K_k7_n25_s1234_c1.json'))
+print(sorted(d[0].keys()))"
+# ['finish_reason', 'gen_tokens', 'id', 'prompt_tokens', 'sha1', 'timing', 'token_ids']
+```
+
+`timing` holds **only `arrival_time`** — no first-token or completion time —
+so per-request latency is genuinely unavailable and wall-clock speedup
+intervals can only come from repeated whole runs. There are also **no
+per-request draft or accept counts**, so tau and coverage are run-aggregate
+and cannot be resampled over prompts either. The earlier "may still be
+bootstrappable" note is resolved as no.
+
+But `token_ids` *is* per-prompt, so every quantity in the losslessness result
+— per-sequence agreement, per-token divergence — is a per-prompt measurement
+and **can** be bootstrapped from data already on disk, for free. That matters
+because 12.7 percent against 19.0 percent at n = 25 to 100 is a difference of
+a handful of sequences, quoted to three significant figures with no idea
+whether it survives resampling. The construction has to be paired: resample
+prompt ids with replacement, compute both agreement rates on the same prompt
+set, and report an interval on the difference, so the shared prompt-to-prompt
+variation cancels.
 
 **Decision:** nothing is promoted from `paper/claims.md` to
 `paper/conclusions.md` without an uncertainty interval. The inversion is
 currently recorded as a measurement, not a claim.
+
+### Teammate access, and why Sahil's jobs died in seven seconds
+
+**Diagnosed, not yet confirmed.** POSIX ACL precedence: when a **named user
+entry** matches, it is used and the group entries are never consulted. The
+project tree carries `user:ssashi:r-x`, so his `delta_bikd` membership and the
+`group::rwx` bits were both irrelevant to him — he had read and execute, and
+no write, everywhere.
+
+`phase0.sh` line 10 hardcodes
+`#SBATCH --output=/projects/bikd/dagraw2/Speculative_Ladder/logs/phase0-%j.out`,
+and an `#SBATCH` directive cannot take a variable. So Slurm could not create
+his output file, the job died at launch in seconds on any partition, and **no
+log was ever written** — which is why we spent two days unable to find a log
+of his to read, and treated its absence as him not sending it.
+
+Fix, granting write only where it is needed:
+
+```bash
+P=/projects/bikd/$USER/Speculative_Ladder
+setfacl -R -m u:ssashi:rwX -m d:u:ssashi:rwX "$P/logs" "$P/.vllm_cache"
+getfacl -p "$P/logs" "$P/.vllm_cache" | grep -E 'file:|ssashi|mask'
+```
+
+`logs/` because Slurm must write there; `.vllm_cache` because the multiarch
+build is a different build and his first run has to write roughly four minutes
+of compiled kernels. A shared torch compile cache is designed for concurrent
+use, so that one is the script's intent rather than a compromise. `results/`
+is deliberately **not** granted: two writers appending to one `results.jsonl`
+can interleave partial lines and corrupt the dataset silently. He uses
+`LADDER_OUT` to write to his own tree instead.
+
+Also tightened the shared venv, which was group-writable:
+
+```bash
+chmod -R g+rX,g-w "$P/vllm_env_multiarch"    # 4m07s, ~100k files
+```
+
+The ACL mask became `r-x`, which clamps `group::rwx` to `r-x` effective, so
+nobody in the group can modify the venv. This protects the premise the whole
+hardware axis rests on — same commit, same binary, only the architecture list
+differs — against a stray `pip install` into the shared environment.
+
+**Two traps recorded while reading `phase0.sh` properly for the first time.**
+
+The venv fallback is `LADDER_VENV`, then `$HOME/vllm_env` if it exists, then
+`$SHARED/vllm_env`. Both fallbacks are single-architecture builds. Since
+`~/vllm_env` exists and is executable, **any A100 job submitted without
+`LADDER_VENV` reproduces 22685764 exactly** — a reserved node, nine failed
+arms, nothing written. `LADDER_VENV` is now mandatory on every job in
+`notes/teammate-quickstart.md`, A40 included, so it is one habit rather than a
+special case.
+
+And the architecture guard is `case "$CAP" in 80|86)`, written when the shared
+build had only those two. The multiarch build carries sm_90, so the guard now
+wrongly aborts an H200 job the venv could actually run. Harmless while H200 is
+out of scope, but the guard is hardcoded to a build that has become a
+variable.
+
+### Two data-integrity questions opened, neither resolved
+
+**The KV cache differs by arm within a single job.** From 22685911's log the
+arms got 173,056 / 173,104 / 136,160 / 160,336 / 160,032 / 125,456 tokens — a
+28 percent spread. The small ones are the speculative arms, which reserve
+memory for the drafter and the draft-token buffers, so DFlash runs with a
+materially smaller cache than the baseline it is compared against.
+
+At 32K this may not be academic. Job 22713173's smallest arm reports a ceiling
+of **3.72x** for full-length requests, and that bucket ran at concurrency 1, 2
+and **4**. If the 32K prompts sit near `max_model_len`, the conc=4
+speculative arms were asking for more cache than they had, and vLLM's answer
+is preemption and recompute — which inflates R for that arm alone, with no
+crash and no warning. Unchecked:
+
+```bash
+grep -i "preempt\|recompute\|cache full" logs/phase0-22713173.out | head
+```
+
+The headline inversion is at concurrency 1, where one 33K request against
+~125K of cache is comfortable, so that result is not threatened. The 32K load
+axis might be.
+
+**The `Maximum concurrency` audit the script asks for does not answer the
+question.** vLLM computes that figure for a full `max_model_len` request —
+33,792 tokens in every log, including the 2K and 8K runs — so it is a
+worst-case ceiling, not a statement about what got scheduled in the bucket
+actually being run.
 
 ## 7 Oct 2026 — the k sweep refutes a prediction
 
@@ -160,7 +271,7 @@ overnight at 05:24. It is reused unmodified at every bucket because it takes
 its grid from the environment:
 
 ```bash
-sbatch --export=ALL,BUCKET=32k,LIMIT=25,CONC=1,KLIST="1 2 7 15" \
+sbatch --export=ALL,BUCKET=32K,LIMIT=25,CONC=1,KLIST="1 2 7 15" \
        kprobe_32k.sh                                               # 22714602
 ```
 
@@ -168,8 +279,8 @@ sbatch --export=ALL,BUCKET=32k,LIMIT=25,CONC=1,KLIST="1 2 7 15" \
 what context is taxing:
 
 ```bash
-sbatch --export=ALL,BUCKET=2k,LIMIT=25,CONC=1,KLIST="1 2 7" kprobe_32k.sh  # 22737716
-sbatch --export=ALL,BUCKET=8k,LIMIT=25,CONC=1,KLIST="1 2 7" kprobe_32k.sh  # 22737717
+sbatch --export=ALL,BUCKET=2K,LIMIT=25,CONC=1,KLIST="1 2 7" kprobe_32k.sh  # 22737716
+sbatch --export=ALL,BUCKET=8K,LIMIT=25,CONC=1,KLIST="1 2 7" kprobe_32k.sh  # 22737717
 ```
 
 **Started the vLLM rebuild**, zero GPU hours, in tmux so a closed laptop
@@ -261,9 +372,9 @@ The script copies the venv into project space with paths rewritten, then
 the wrong group), sweeps the whole tree, and verifies by printing group and
 mode. Group corrected from `grp_202` to `delta_bikd`. Sahil's jobs 22713193
 and 22713194 still failed in seven seconds each with ExitCode `0:53`, on
-different partitions. **Still undiagnosed.** His job 22713396 was queued on
-A100 and should have been cancelled, since no A100 job could have worked that
-day.
+different partitions — diagnosed two days later as the ACL write problem
+recorded under 8 Oct. His job 22713396 was queued on A100 and should have been
+cancelled, since no A100 job could have worked that day.
 
 **Cerebras.** The professor sent `sdk.cerebras.ai`. That is the CSL kernel
 development SDK for the Wafer-Scale Engine, not an inference API — no models,
@@ -311,15 +422,15 @@ Write-up in `notes/2026-10-05-losslessness-and-engine-nondeterminism.md`.
 **Submitted two cells:**
 
 ```bash
-sbatch --export=ALL,BUCKET=8k,LIMIT=25,CONC="1 8" phase0.sh       # 22685911
-sbatch --partition=gpuA100x4 --export=ALL,BUCKET=2k,LIMIT=25 \
+sbatch --export=ALL,BUCKET=8K,LIMIT=25,CONC="1 8" phase0.sh        # 22685911
+sbatch --partition=gpuA100x4 --export=ALL,BUCKET=2K,LIMIT=25 \
        phase0.sh                                                   # 22685764
 ```
 
 ## 1 Oct 2026 — first valid measurement, and the coverage correction
 
 ```bash
-sbatch --export=ALL,BUCKET=2k,LIMIT=25,CONC="1 8 32" phase0.sh   # 22598608
+sbatch --export=ALL,BUCKET=2K,LIMIT=25,CONC="1 8 32" phase0.sh    # 22598608
 ```
 
 52 minutes on one A40. Three rungs (`off`, `ngram`, `dflash`) at concurrency
@@ -367,8 +478,8 @@ meaningless. The harness now refuses to start without this set.
 *Cause:* the scripts ran `module load cray-python` but never activated the
 venv. Loading the Python module is not the same as entering the environment.
 
-*Fix:* added `source "$LADDER_VENV/bin/activate"` to the job script, with
-`LADDER_VENV` defaulting to `~/vllm_env`.
+*Fix:* added `source "$VENV/bin/activate"` to the job script, with the venv
+resolved from `LADDER_VENV`, then `$HOME/vllm_env`, then the shared copy.
 
 **First real run** (22569403). All prompts submitted at once.
 
@@ -393,8 +504,8 @@ axis, not a mistake.
 | 22737716 | 7 Oct | A40 | 2K k sweep | COMPLETED 00:32:42 | R_draft = 0.296 |
 | 22714602 | 6-7 Oct | A40 | 32K k sweep | COMPLETED 01:07:08 | refuted the k=1 prediction |
 | 22713396 | 6 Oct | A100 | 8K (ssashi) | PENDING | should have been cancelled |
-| 22713194 | 6 Oct | A40 | ? (ssashi) | FAILED 00:00:07 | undiagnosed, exit 0:53 |
-| 22713193 | 6 Oct | A100 | ? (ssashi) | FAILED 00:00:07 | undiagnosed, exit 0:53 |
+| 22713194 | 6 Oct | A40 | ? (ssashi) | FAILED 00:00:07 | ACL: no write for Slurm output |
+| 22713193 | 6 Oct | A100 | ? (ssashi) | FAILED 00:00:07 | ACL: no write for Slurm output |
 | 22713175 | 6 Oct | A100 | diagnostic | COMPLETED 00:03:35 | **answered the A100 failure** |
 | 22713173 | 6 Oct | A40 | 32K | COMPLETED 01:16:07 | **the inversion** |
 | 22685911 | 5 Oct | A40 | 8K | COMPLETED 01:03:12 | opposite-direction decay |
@@ -427,6 +538,9 @@ sacct -S 2026-09-30 -u $USER -X \
 | Rebuild the **same commit** with three architectures, into a **new** venv | A rebuild in place would replace the binary that produced every existing measurement | 7 Oct |
 | No claim reaches `conclusions.md` without an interval | Every number so far is a single run | 8 Oct |
 | Run A100 cells compiled, not with `enforce_eager` | 22754950 step 4 passes, so there is no reason to accept a code-path difference between the two GPUs | 8 Oct |
+| Make the shared venv read-only to the group | The hardware axis rests on "same binary"; a stray `pip install` into shared space would invalidate it invisibly | 8 Oct |
+| Give teammates write on `logs/` and `.vllm_cache` but **not** `results/` | Slurm must write a log and vLLM must write a cache; two writers appending to one `results.jsonl` can corrupt it silently. Per-user results via `LADDER_OUT` | 8 Oct |
+| `LADDER_VENV` is mandatory on every job | The fallbacks are single-architecture builds, so omitting it on A100 reproduces 22685764 | 8 Oct |
 
 ---
 
@@ -439,20 +553,24 @@ Recording these is cheaper than rediscovering them.
 | A100 is supported, because `cuobjdump` lists sm_80 | `ls $VD/*.so` is not recursive and missed the FlashAttention extension in a subdirectory. Worse: sm_80 *was* listed in the main extension and the kernels still did not run. A listing is not proof of execution | one failed A100 job, ~17 min billed |
 | The A100 failure is compile-cache poisoning from the A40 runs | Per-config and `torch_aot_compile` hashes are disjoint across GPUs, and the A100 run logged nine saves and zero loads, so it compiled everything fresh | ~20 min of analysis, no GPU |
 | The failure is in FlashAttention, per the traceback | `output.fill_(0)` at `flash_attn.py:1211` is the profiling shortcut that skips attention entirely. The error was sticky, from an earlier failed launch. CUDA errors surface where they are noticed, not where they happen | sent the diagnosis down the wrong path twice |
-| Sahil could not read the venv because its group was `grp_202` | `id ssashi` shows `grp_202` is his *primary* group. He could read it all along | a `chgrp` over 100k files; his failures are still undiagnosed |
+| Sahil could not read the venv because its group was `grp_202` | `id ssashi` shows `grp_202` is his *primary* group. He could read it all along | a `chgrp` over 100k files |
+| Sahil *could* write to the tree, because `group::rwx` and he is in `delta_bikd` | POSIX uses a matching **named user** ACL entry and ignores group entirely. `user:ssashi:r-x` gave him no write anywhere | two days of his jobs failing, and ours looking for a log that was never created |
 | `same length` would distinguish a token flip from a different answer | Every generation hits the 256-token cap, so all lengths are equal by construction | one useless diagnostic, rewritten |
 | k=1 would rescue DFlash at 32K | Fitted `R = 1 + k*c` to a single point by assuming the intercept. The real intercept is 1.662 | one wrong prediction, caught by the sweep that tested it |
 | Optimal k shrinks with context, as it does with load | It **rises** with context. k=7 beat k=15 only at 2K *saturation*. The two axes act in opposite directions | one retracted claim |
 | `requirements/build.txt` holds the build dependencies | `requirements/build` is a directory | one failed build start |
-| Per-request timing would give us a paired bootstrap | This vLLM build populates it on 0 of 25 requests | one harness revision |
+| Per-request timing would give us a paired bootstrap | `timing` carries only `arrival_time`, and there are no per-request draft or accept counts | one harness revision |
 | `import vllm._C` tests whether the extension loads | This build ships stable-ABI extensions with different names and has no `vllm._C`. The probe fails on the A40 too | a false alarm on an otherwise good A100 log |
+| `phase0.sh` derives its paths from `$USER`, so Sahil's job looked in his own empty tree | `grep USER phase0.sh` returns nothing. The paths are overridable variables defaulting to the shared tree | one wrong hypothesis, refuted for free |
+| `BUCKET=2k` works | The dataset filename is built from `BUCKET` directly and is case sensitive | a wrong command sat in this file for a day |
 
 **The pattern in most of these:** a conclusion drawn from a proxy — a file
 listing, a directory name, a traceback line, a group name, a module name, a
-single data point with an assumed intercept — instead of testing the thing
-itself. The fix that works is bisection, cheapest layer first, as in
-`diag_a100.sh`. Ten minutes of GPU time, and it should have been the first
-move every time.
+mode string, a single data point with an assumed intercept — instead of
+testing the thing itself. The fix that works is bisection, cheapest layer
+first, as in `diag_a100.sh`. Ten minutes of GPU time, and it should have been
+the first move every time. The second pattern, visible in the `$USER` and
+`BUCKET` entries: **read the script, do not infer it.**
 
 ---
 
@@ -480,28 +598,40 @@ at an assumed 2x; **this multiplier has not been verified against
 | vLLM multi-architecture rebuild | ~4 h wall | **0** — login node |
 | **Total** | | **~8.6 of 10** |
 
-**Roughly 1.4 hours of headroom.** A single 32K cell costs about 1.3. Request
-the top-up before submitting anything else, not after a job is refused.
+**Roughly 1.4 hours of headroom** on this allocation. A single 32K cell costs
+about 1.3. A top-up has been confirmed as available and should be requested
+before anything else is submitted. Sahil's own 10-hour sub-allocation is
+almost entirely unspent, because every job he launched died at launch — so
+unblocking him is the main route to further measurement, not a courtesy.
 
 ---
 
 ## Open items
 
+- **Sahil's smoke test.** The ACL diagnosis is unconfirmed until a 5-prompt
+  A40 run of his writes a log and a results file. Command in
+  `notes/teammate-quickstart.md` step 2.
+- **Preemption at 32K concurrency 4.** The speculative arms ran with up to 28
+  percent less KV cache than the baseline; check the logs for preemption
+  before the 32K load axis is reported.
 - **Triton divergence between the two venvs.** The multiarch install pulled
   `tokenspeed-triton-3.8.10` and may have displaced `triton-3.7.1`. If the
   versions differ, any A40-vs-A100 gap is confounded by more than the
-  architecture list, which breaks the "same binary, only architectures
-  differ" premise of C4. Free to check:
+  architecture list, which breaks the "same binary" premise of C4. Free to
+  check:
   `for V in ~/vllm_env $PROJ/vllm_env_multiarch; do "$V/bin/pip" list | grep -Ei 'triton|^torch |vllm'; done`
-- **No confidence intervals anywhere.** Repeated runs are the only route for
-  speedup. Check the stored JSONL schema first to see whether tau and
-  coverage can be bootstrapped from data already on disk.
+- **The 7 Oct sweep data is not committed.** `results/a40/` has no `n25` files
+  for 2K or 8K, so the R_draft table in this log and in the 8 Oct note cites
+  numbers whose raw data exists only on Delta. Run `push_results.sh`.
+- **Bootstrap the agreement result.** Per-prompt, free, and the claim most in
+  need of an interval.
+- **Repeated runs for speedup intervals.** The only route available.
 - **n-gram's R_draft has never been measured**, only assumed near zero.
 - **Three buckets cannot identify how R_draft scales** with context.
-- **Sahil's 7-second failures** (22713193, 22713194, exit `0:53`) remain
-  undiagnosed. His group access was never the problem.
 - **A100 measurement cells not yet submitted.** The path is clear as of
-  22754950; the blocker now is budget, not the build.
+  22754950.
+- **The architecture guard allows only 80 and 86**, so it aborts H200 jobs the
+  multiarch build could run.
 - **Allocation top-up not requested.**
 - **Professor not yet told about the scope change:** approved for a hardware
   comparison, delivering a context-axis inversion.
