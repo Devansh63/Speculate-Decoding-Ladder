@@ -72,16 +72,35 @@ cubins again:
 sbatch diag_a100_multiarch.sh                                      # 22754950
 ```
 
-Step 1 passed. Step 2 reported `rms_norm OK` under
-`CUDA_LAUNCH_BLOCKING=1` on an A100. That is a real sm_80 kernel launch, so
-**the blocker is resolved and the hardware axis (C4) is reachable again.**
+**All four steps passed** in 11m06s, including step 4 — the compiled,
+CUDA-graph configuration that lost all nine arms on 22685764. Plain torch,
+vLLM's `rms_norm` custom op under `CUDA_LAUNCH_BLOCKING=1`, eager generation
+and compiled generation all work on sm_80. **The A100 blocker is resolved and
+needs no `enforce_eager` workaround**, so C4 can be measured on the same code
+path as the A40 numbers.
 
-The same log shows `import vllm._C` raising `ModuleNotFoundError`. That is a
-defect in the diagnostic probe, not the build: this vLLM ships stable-ABI
-extensions named `_C_stable_libtorch`, `_moe_C_stable_libtorch` and
-`_vllm_fa2_C`, and has no module named `vllm._C` at all. The same probe fails
-identically on the A40, where everything works. The line that matters is the
-`rms_norm` dispatch on the next line.
+The log shows `import vllm._C` raising `ModuleNotFoundError`. That is a defect
+in the diagnostic probe, not the build: this vLLM ships stable-ABI extensions
+named `_C_stable_libtorch`, `_moe_C_stable_libtorch` and `_vllm_fa2_C`, and
+has no module named `vllm._C` at all. The same probe fails identically on the
+A40, where everything works. The line that matters is the `rms_norm` dispatch
+immediately after it.
+
+**Unplanned finding: the eager and compiled paths disagree under greedy
+decoding.** Same prompt, same seed, `temperature=0.0`, and steps 3 and 4
+returned different continuations:
+
+```
+EAGER OK:    ' Paris. The capital of Italy is Rome. The capital of Spain is Madrid.'
+COMPILED OK: ' Paris. The capital of Italy is Rome. The capital of Germany is Berlin.'
+```
+
+This is a second, independent instance of the 5 Oct result. The engine's own
+numerics move the output at the first position where two near-equal logits
+reorder, and the choice of execution path is enough to do it. Worth a line in
+`notes/2026-10-05-losslessness-and-engine-nondeterminism.md`, because it is a
+cleaner demonstration than the concurrency control: no speculation, no
+batching difference, nothing but eager versus compiled.
 
 **C9 confirmed: R decomposes.** With the 2K and 8K sweeps in, fitting
 `R(k) = R_draft + c*k` over k = 1, 2, 7 at each bucket:
@@ -136,11 +155,13 @@ when k shrinks, so cutting k cannot help. Write-up in
 **Also retracted:** "context does to k what load does to k". Wrong.
 Optimal k **rises** with context and **shrinks** with load.
 
-The k probe, reused unmodified at every bucket because it takes its grid from
-the environment:
+The k probe that produced this, submitted the evening of the 6th and finished
+overnight at 05:24. It is reused unmodified at every bucket because it takes
+its grid from the environment:
 
 ```bash
-sbatch --export=ALL,BUCKET=32k,LIMIT=25,CONC=1,KLIST="1 2 7 15" kprobe_32k.sh
+sbatch --export=ALL,BUCKET=32k,LIMIT=25,CONC=1,KLIST="1 2 7 15" \
+       kprobe_32k.sh                                               # 22714602
 ```
 
 **Submitted the same probe at 2K and 8K**, to see whether the fixed cost is
@@ -367,20 +388,27 @@ axis, not a mistake.
 
 | Job | Date | GPU | Cell | State | Outcome |
 |---|---|---|---|---|---|
-| 22754950 | 8 Oct | A100 | diagnostic, multiarch venv | steps 1-2 pass | **A100 unblocked** |
-| 22737717 | 7 Oct | A40 | 8K k sweep | COMPLETED | R_draft = 0.434 |
-| 22737716 | 7 Oct | A40 | 2K k sweep | COMPLETED | R_draft = 0.296 |
-| (32K k probe) | 7 Oct | A40 | 32K k sweep | COMPLETED | refuted the k=1 prediction |
+| 22754950 | 8 Oct | A100 | diagnostic, multiarch venv | COMPLETED 00:11:06 | **all 4 steps pass, A100 unblocked** |
+| 22737717 | 7 Oct | A40 | 8K k sweep | COMPLETED 00:42:01 | R_draft = 0.434 |
+| 22737716 | 7 Oct | A40 | 2K k sweep | COMPLETED 00:32:42 | R_draft = 0.296 |
+| 22714602 | 6-7 Oct | A40 | 32K k sweep | COMPLETED 01:07:08 | refuted the k=1 prediction |
 | 22713396 | 6 Oct | A100 | 8K (ssashi) | PENDING | should have been cancelled |
 | 22713194 | 6 Oct | A40 | ? (ssashi) | FAILED 00:00:07 | undiagnosed, exit 0:53 |
 | 22713193 | 6 Oct | A100 | ? (ssashi) | FAILED 00:00:07 | undiagnosed, exit 0:53 |
 | 22713175 | 6 Oct | A100 | diagnostic | COMPLETED 00:03:35 | **answered the A100 failure** |
-| 22713173 | 6 Oct | A40 | 32K | COMPLETED | **the inversion** |
+| 22713173 | 6 Oct | A40 | 32K | COMPLETED 01:16:07 | **the inversion** |
 | 22685911 | 5 Oct | A40 | 8K | COMPLETED 01:03:12 | opposite-direction decay |
 | 22685764 | 6 Oct | A100 | 2K | COMPLETED 00:17:03 | **all 9 arms failed**, nothing written |
 | 22598608 | 1 Oct | A40 | 2K concurrency sweep | COMPLETED 00:52:39 | first valid measurement |
 | 22569403 | 30 Sep | A40 | 2K, uncontrolled | COMPLETED | speedups void, acceptance usable |
 | (six jobs) | 30 Sep | A40 | — | FAILED ~00:00:05 | `ModuleNotFoundError: vllm` |
+
+Elapsed times are from `sacct`, not estimated. To rebuild this table:
+
+```bash
+sacct -S 2026-09-30 -u $USER -X \
+  --format=JobID,JobName%20,Partition,State,Elapsed,End
+```
 
 ---
 
@@ -398,6 +426,7 @@ axis, not a mistake.
 | Do **not** switch A100 to `TRITON_ATTN` to make it run | A40 ran on FlashAttention; mixing backends would put the difference into R, the quantity being measured | 6 Oct |
 | Rebuild the **same commit** with three architectures, into a **new** venv | A rebuild in place would replace the binary that produced every existing measurement | 7 Oct |
 | No claim reaches `conclusions.md` without an interval | Every number so far is a single run | 8 Oct |
+| Run A100 cells compiled, not with `enforce_eager` | 22754950 step 4 passes, so there is no reason to accept a code-path difference between the two GPUs | 8 Oct |
 
 ---
 
@@ -416,12 +445,14 @@ Recording these is cheaper than rediscovering them.
 | Optimal k shrinks with context, as it does with load | It **rises** with context. k=7 beat k=15 only at 2K *saturation*. The two axes act in opposite directions | one retracted claim |
 | `requirements/build.txt` holds the build dependencies | `requirements/build` is a directory | one failed build start |
 | Per-request timing would give us a paired bootstrap | This vLLM build populates it on 0 of 25 requests | one harness revision |
+| `import vllm._C` tests whether the extension loads | This build ships stable-ABI extensions with different names and has no `vllm._C`. The probe fails on the A40 too | a false alarm on an otherwise good A100 log |
 
 **The pattern in most of these:** a conclusion drawn from a proxy — a file
-listing, a directory name, a traceback line, a group name, a single data point
-with an assumed intercept — instead of testing the thing itself. The fix that
-works is bisection, cheapest layer first, as in `diag_a100.sh`. Ten minutes of
-GPU time, and it should have been the first move every time.
+listing, a directory name, a traceback line, a group name, a module name, a
+single data point with an assumed intercept — instead of testing the thing
+itself. The fix that works is bisection, cheapest layer first, as in
+`diag_a100.sh`. Ten minutes of GPU time, and it should have been the first
+move every time.
 
 ---
 
@@ -430,23 +461,27 @@ GPU time, and it should have been the first move every time.
 Sub-allocation: 10 GPU-hours deposited per student. More is available on
 request; the professor has confirmed this.
 
-| Spent on | Approx. |
-|---|---|
-| 30 Sep first run and failures | ~2 h |
-| 22598608, 2K sweep | ~0.9 h |
-| 22685911, 8K sweep | ~1.1 h |
-| 22685764, A100, produced nothing | ~0.6 h (A100 bills ~2x) |
-| 22713175, diagnostic | ~0.1 h |
-| 22713173, 32K | ~2 h |
-| 32K k probe | ~0.7 h |
-| 22737716 + 22737717, 2K and 8K k sweeps | ~1.3 h |
-| 22754950, A100 diagnostic | ~0.2 h (A100 bills ~2x) |
-| vLLM rebuild | **0 h** — login node, no GPU |
+Measured from `sacct` elapsed times, one GPU per job. A100 jobs are charged
+at an assumed 2x; **this multiplier has not been verified against
+`accounts`** and is the main uncertainty in the total.
 
-The balance is effectively exhausted before any top-up. Delta's `accounts`
-balance has lagged visibly behind actual usage, so treat these as estimates.
-**Request a top-up before submitting anything else**, not after a job is
-refused.
+| Spent on | Elapsed | GPU-h |
+|---|---|---|
+| 30 Sep first run and six failures | not recorded | ~2 (est.) |
+| 22598608, 2K concurrency sweep | 00:52:39 | 0.88 |
+| 22685911, 8K sweep | 01:03:12 | 1.05 |
+| 22685764, A100 2K, produced nothing | 00:17:03 | 0.57 |
+| 22713175, A100 diagnostic | 00:03:35 | 0.12 |
+| 22713173, 32K | 01:16:07 | 1.27 |
+| 22714602, 32K k probe (4 values) | 01:07:08 | 1.12 |
+| 22737716, 2K k probe (3 values) | 00:32:42 | 0.55 |
+| 22737717, 8K k probe (3 values) | 00:42:01 | 0.70 |
+| 22754950, A100 diagnostic | 00:11:06 | 0.37 |
+| vLLM multi-architecture rebuild | ~4 h wall | **0** — login node |
+| **Total** | | **~8.6 of 10** |
+
+**Roughly 1.4 hours of headroom.** A single 32K cell costs about 1.3. Request
+the top-up before submitting anything else, not after a job is refused.
 
 ---
 
@@ -465,10 +500,13 @@ refused.
 - **Three buckets cannot identify how R_draft scales** with context.
 - **Sahil's 7-second failures** (22713193, 22713194, exit `0:53`) remain
   undiagnosed. His group access was never the problem.
-- **A100 cells not yet submitted** against the new venv.
+- **A100 measurement cells not yet submitted.** The path is clear as of
+  22754950; the blocker now is budget, not the build.
 - **Allocation top-up not requested.**
 - **Professor not yet told about the scope change:** approved for a hardware
   comparison, delivering a context-axis inversion.
 - **Prefix-caching-off control not run.**
 - **Quality evaluation not run** — free, login node, decode the stored token
   ids and score LongBench-v2 multiple choice.
+- **Eager-vs-compiled divergence** (8 Oct) not yet folded into the
+  losslessness note, where it belongs as the cleanest demonstration.
