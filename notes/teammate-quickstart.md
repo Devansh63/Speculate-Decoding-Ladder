@@ -2,9 +2,10 @@
 
 For Sahil, or anyone else in the `bikd` project. Everything is already set up
 and shared: the models, the workload files, the scripts, and a working vLLM.
-You do not need to download a model, build vLLM, or create any directories.
+You do not need to download a model, build vLLM, or create any directories
+beyond your own results folder.
 
-If you just want to run a job, read **Step 1 and Step 2** and stop.
+If you just want to run a job, read **Steps 1 to 3** and stop.
 
 ---
 
@@ -16,47 +17,108 @@ ssh <your-netid>@login.delta.ncsa.illinois.edu
 
 NCSA Kerberos password, then a Duo prompt (`1` sends a push).
 
-## Step 2. Submit a job
+## Step 2. Run the smoke test first
+
+Five prompts, one concurrency level, on the cheaper GPU. It proves the whole
+pipeline — venv, model, data, output path, permissions — for a few minutes of
+A40 time instead of failing a real cell an hour in.
 
 ```bash
-cd /projects/bikd/dagraw2/Speculative_Ladder/ladder/scripts
-sbatch --export=ALL,BUCKET=8K,LIMIT=50,CONC="1 4 12" phase0.sh
-squeue -u $USER
+SHARED=/projects/bikd/dagraw2/Speculative_Ladder
+mkdir -p /projects/bikd/$USER/Speculative_Ladder/results/a40
+cd $SHARED/ladder/scripts
+
+sbatch --time=00:30:00 --export=ALL,\
+LADDER_VENV=$SHARED/vllm_env_multiarch,\
+LADDER_OUT=/projects/bikd/$USER/Speculative_Ladder/results/a40,\
+BUCKET=2K,LIMIT=5,CONC=1 phase0.sh
 ```
 
-That is the whole thing. It runs nine arms (three rungs at three concurrency
-levels), takes 40 to 60 minutes, and appends to the shared results file. You
-can close your laptop; the job is detached from your session.
+Watch it, then read the log:
 
-**Pick your job from this table.** Do not invent combinations; the concurrency
-grid has to shrink as context grows or the rows get mislabelled (see "Why the
-grid shrinks" below).
+```bash
+squeue -u $USER
+sacct -j <jobid> --format=JobID,State,Elapsed,ExitCode -X
+grep -n 'venv:\|out=\|### rung\|FAILED\|ABORT' $SHARED/logs/phase0-<jobid>.out
+```
+
+You want to see `venv:` naming `vllm_env_multiarch`, `out=` naming *your*
+results directory, three `### rung=` lines, and no `FAILED` or `ABORT`.
+
+**If no log file exists at all**, that is a permissions problem, not a code
+problem — Slurm could not create the output file. Tell Devansh rather than
+resubmitting.
+
+## Step 3. Submit a real cell
+
+Pick one row. Do not invent combinations: the concurrency grid has to shrink
+as context grows or the rows get mislabelled (see "Why the grid shrinks").
+
+All of these assume you have exported `SHARED` and `OUT` first:
+
+```bash
+SHARED=/projects/bikd/dagraw2/Speculative_Ladder
+OUT=/projects/bikd/$USER/Speculative_Ladder/results
+mkdir -p $OUT/a40 $OUT/a100
+cd $SHARED/ladder/scripts
+```
 
 | What | Command |
 |---|---|
-| A40, 2K | `sbatch --export=ALL,BUCKET=2K,LIMIT=50 phase0.sh` |
-| A40, 8K | `sbatch --export=ALL,BUCKET=8K,LIMIT=50,CONC="1 4 12" phase0.sh` |
-| A40, 32K | `sbatch --time=03:00:00 --export=ALL,BUCKET=32K,LIMIT=25,CONC="1 2 4" phase0.sh` |
-| A100, 2K | `sbatch --partition=gpuA100x4 --export=ALL,BUCKET=2K,LIMIT=50 phase0.sh` |
-| A100, 8K | `sbatch --partition=gpuA100x4 --export=ALL,BUCKET=8K,LIMIT=50,CONC="1 4 12" phase0.sh` |
-| A100, 32K | `sbatch --partition=gpuA100x4 --time=03:00:00 --export=ALL,BUCKET=32K,LIMIT=25,CONC="1 2 4" phase0.sh` |
+| A40, 2K | `sbatch --export=ALL,LADDER_VENV=$SHARED/vllm_env_multiarch,LADDER_OUT=$OUT/a40,BUCKET=2K,LIMIT=50 phase0.sh` |
+| A40, 8K | `sbatch --export=ALL,LADDER_VENV=$SHARED/vllm_env_multiarch,LADDER_OUT=$OUT/a40,BUCKET=8K,LIMIT=50,CONC="1 4 12" phase0.sh` |
+| A40, 32K | `sbatch --time=03:00:00 --export=ALL,LADDER_VENV=$SHARED/vllm_env_multiarch,LADDER_OUT=$OUT/a40,BUCKET=32K,LIMIT=25,CONC="1 2 4" phase0.sh` |
+| A100, 2K | `sbatch --partition=gpuA100x4 --export=ALL,LADDER_VENV=$SHARED/vllm_env_multiarch,LADDER_OUT=$OUT/a100,BUCKET=2K,LIMIT=50 phase0.sh` |
+| A100, 8K | `sbatch --partition=gpuA100x4 --export=ALL,LADDER_VENV=$SHARED/vllm_env_multiarch,LADDER_OUT=$OUT/a100,BUCKET=8K,LIMIT=50,CONC="1 4 12" phase0.sh` |
+| A100, 32K | `sbatch --partition=gpuA100x4 --time=03:00:00 --export=ALL,LADDER_VENV=$SHARED/vllm_env_multiarch,LADDER_OUT=$OUT/a100,BUCKET=32K,LIMIT=25,CONC="1 2 4" phase0.sh` |
 
-**Never submit to `gpuH200x8`.** The shared vLLM has no H200 kernels and the
-job will abort after reserving a node. See `env/gpu-support.md`.
+A full cell runs nine arms (three rungs at three concurrency levels) and takes
+40 to 80 minutes. You can close your laptop; the job is detached from your
+session.
+
+**`BUCKET` is case sensitive.** It is `2K`, `8K`, `32K` — uppercase. The
+dataset filename is built from it directly, so `2k` fails on a missing file.
+
+**Never submit to `gpuH200x8`.** The guard aborts on any compute capability
+other than 80 and 86, so the job dies after reserving a node even though the
+multiarch build does carry sm_90 kernels. See `env/gpu-support.md`.
 
 **Coordinate before submitting.** Message Devansh with which cell you are
 taking, so the two of you do not spend GPU hours measuring the same thing.
 
-## Step 3. When it finishes
+## Step 4. Read the results
 
 ```bash
 module load cray-python/3.12.12
 SHARED=/projects/bikd/dagraw2/Speculative_Ladder
-python3 $SHARED/ladder/scripts/summarize.py $SHARED/results/a40    # or a100
+python3 $SHARED/ladder/scripts/summarize.py \
+  /projects/bikd/$USER/Speculative_Ladder/results/a40     # or a100
 ```
 
-The job prints these two commands at the end of its log, with the right paths
-already filled in, so you can copy them from there instead.
+The job prints this command at the end of its log with the paths filled in, so
+you can copy it from there instead.
+
+---
+
+## The two variables you must always set, and why
+
+**`LADDER_VENV`.** `phase0.sh` picks a venv in this order: `LADDER_VENV` if
+set, then `$HOME/vllm_env` if it exists, then the shared `vllm_env`. Both
+fallbacks are **single-architecture builds with no A100 kernels and no PTX**,
+so an A100 job that omits this variable reserves a node and dies at kernel
+launch with `cudaErrorNoKernelImageForDevice`. That is exactly what happened
+to job 22685764: seventeen minutes billed, nine arms lost, nothing written.
+Set it on every job, A40 included, so it is one habit rather than a special
+case you have to remember.
+
+**`LADDER_OUT`.** Without it, results are appended to Devansh's
+`results/<gpu>/results.jsonl`. Two things are wrong with that: you may not
+have write permission there, and two people appending to one file is a way to
+corrupt a dataset that nobody notices until the analysis disagrees with
+itself. Point it at your own tree and `summarize.py` reads either.
+
+Do **not** override `LADDER_SHARED`. The data path, the harness path and the
+venv fallback all derive from it, and your tree has none of those.
 
 ---
 
@@ -80,9 +142,13 @@ by draft position, and the raw draft counters. The headline numbers are:
 
 `Speedup ~= [cov * tau + (1 - cov)] / R`
 
-The finding so far is that tau is essentially constant as load changes while
-speedup collapses, so all of the variation is in R. See
-`notes/2026-10-01-a40-2k-concurrency-sweep.md`.
+Two findings so far. tau is essentially constant as load changes while speedup
+collapses, so all of the variation is in R
+(`notes/2026-10-01-a40-2k-concurrency-sweep.md`). And R itself splits into a
+fixed per-step drafter cost and a flat marginal cost per drafted token, with
+only the first growing with context — which is why the ranking of `ngram` and
+`dflash` reverses between 2K and 32K
+(`notes/2026-10-08-drafter-cost-scaling.md`).
 
 ### Why the concurrency grid shrinks with context
 
@@ -98,6 +164,14 @@ row is labelled with a concurrency it never ran at. Always check:
 grep -i "maximum concurrency" /projects/bikd/dagraw2/Speculative_Ladder/logs/phase0-<jobid>.out
 ```
 
+Note that the number vLLM prints there is computed for a full `max_model_len`
+request, not for the bucket you actually ran, so it is a worst-case ceiling
+rather than a direct answer. Also note that the available cache **differs by
+arm within one job** — speculative arms reserve memory for the drafter, and
+have been observed with up to 28 percent less cache than the `off` arm in the
+same job. At 32K that can push a speculative arm below the concurrency the
+baseline reached.
+
 ### Where everything lives
 
 | What | Path |
@@ -105,41 +179,55 @@ grep -i "maximum concurrency" /projects/bikd/dagraw2/Speculative_Ladder/logs/pha
 | Scripts | `/projects/bikd/dagraw2/Speculative_Ladder/ladder/scripts` |
 | Workloads | `.../ladder/data/longbench_v2/longbench_v2_{2K,8K,32K}.jsonl` |
 | Models | `/work/nvme/bikd/dagraw2/Speculative_Ladder/hf/hub` |
-| Results | `.../Speculative_Ladder/results/{a40,a100}/results.jsonl` |
-| Slurm logs | `.../Speculative_Ladder/logs/phase0-<jobid>.out` |
-| Shared vLLM | `.../Speculative_Ladder/vllm_env` |
+| Devansh's results | `.../Speculative_Ladder/results/{a40,a100}/results.jsonl` |
+| Your results | `/projects/bikd/<your-netid>/Speculative_Ladder/results/{a40,a100}` |
+| Slurm logs | `.../Speculative_Ladder/logs/phase0-<jobid>.out` (shared) |
+| vLLM, multi-arch | `.../Speculative_Ladder/vllm_env_multiarch` — **use this one** |
+| vLLM, original | `.../Speculative_Ladder/vllm_env` — A40 only, kept for the record |
 
 The paths say `dagraw2` because that is where the project tree was created.
-It is group readable and writable by `delta_bikd`, so it is shared space, not
-personal space. Your jobs charge your own allocation.
+Permissions are not uniform across it, so do not assume you can write
+anywhere:
+
+- **readable and executable**: the whole tree, including both venvs
+- **writable by you**: `logs/` and `.vllm_cache/`, which is what lets Slurm
+  create your job's output file and lets vLLM cache compiled kernels
+- **not writable by you**: `results/`, deliberately — use `LADDER_OUT`
+
+If you have a named ACL entry on the tree, note that POSIX uses that entry and
+**ignores your group membership entirely**. Being in `delta_bikd` does not
+grant you what the group bits say if `getfacl` lists you by name. Check with:
+
+```bash
+getfacl -p /projects/bikd/dagraw2/Speculative_Ladder/logs | grep -E "$USER|mask"
+```
+
+Your jobs charge your own allocation regardless of whose tree they read.
 
 ### If you would rather use your own vLLM
 
-`phase0.sh` prefers `$HOME/vllm_env` when it exists and falls back to the
-shared copy otherwise, so if you have already built one it will be used with
-no configuration. To force a specific one:
+Build it for all three architectures, or it will only run on some of them:
 
 ```bash
-sbatch --export=ALL,BUCKET=8K,LIMIT=50,CONC="1 4 12",LADDER_VENV=$HOME/my_env phase0.sh
+export TORCH_CUDA_ARCH_LIST="8.0;8.6;9.0"
 ```
 
-If you build your own, build it for both architectures or it will only run on
-one of them:
-
-```bash
-export TORCH_CUDA_ARCH_LIST="8.0;8.6"
-```
-
-Verify afterwards, because a reinstall can silently reuse a cached wheel:
+Verify afterwards, because a reinstall can silently reuse a cached wheel, and
+scan recursively — the FlashAttention extension lives in a subdirectory and a
+non-recursive glob misses it:
 
 ```bash
 VD=$(python3 -c "import vllm,os;print(os.path.dirname(vllm.__file__))")
 module load cuda
-cuobjdump --list-elf "$VD"/_C_stable_libtorch.abi3.so \
-  | sed -n 's/.*\(sm_[0-9]\+\).*/\1/p' | sort -u
+find "$VD" -name '*.so' -exec sh -c \
+  'echo "== $1"; cuobjdump --list-elf "$1" | sed -n "s/.*\(sm_[0-9]\+\).*/\1/p" | sort -u' _ {} \;
 ```
 
-You want `sm_80` and `sm_86`.
+You want `sm_80`, `sm_86` and `sm_90` in every extension that has any. A
+listing is not proof of execution, though — the original A100 failure had
+sm_80 listed in the main extension and still could not launch a kernel,
+because that half of the fat binary was missing kernels the sm_86 half had.
+The only real test is running `diag_a100.sh`.
 
 ### Pushing results to GitHub
 
@@ -153,23 +241,30 @@ bash /projects/bikd/dagraw2/Speculative_Ladder/ladder/scripts/push_results.sh \
 
 ### Things that will cost you GPU hours for nothing
 
-1. **Interactive sessions bill while idle.** An `srun --pty` that sits at a
+1. **Forgetting `LADDER_VENV` on an A100 job.** A reserved node and a kernel
+   launch failure. The most expensive mistake available.
+2. **Interactive sessions bill while idle.** An `srun --pty` that sits at a
    prompt is charged the whole time. Use `sbatch`.
-2. **Downloads belong on the login node**, which is free. Never inside a job.
-3. **Asking for more cores or memory than one GPU's share** silently charges
+3. **Downloads belong on the login node**, which is free. Never inside a job.
+4. **Asking for more cores or memory than one GPU's share** silently charges
    for extra GPUs. One GPU's share on A40 and A100 nodes is 16 cores and
    62.5 GB. `phase0.sh` already asks for exactly that; do not raise it.
-4. **A100 bills at roughly twice the A40 rate.** Prove a configuration on A40
-   first.
+5. **A100 bills at roughly twice the A40 rate.** Prove a configuration on A40
+   first. That is what step 2 is for.
 
 ### Known gotchas
 
 - The scripts refuse to start unless `VLLM_USE_V2_MODEL_RUNNER=0`. This is
   deliberate. Without it, n-gram silently runs on a different model runner
-  than DFlash and the comparison between them is meaningless.
-- `results.jsonl` is appended to by both of us. Records are small single-line
-  writes, so interleaving is not a practical risk, but avoid running two jobs
-  on the same GPU type at the same moment if you can help it.
+  than DFlash and the comparison between them is meaningless. `phase0.sh`
+  exports it for you.
+- `sbatch` snapshots the batch script at submit time but **not** the files it
+  calls at run time. Editing `run_benchmark.py` after submitting changes what
+  a queued job will do.
+- A Slurm state of `COMPLETED` means the shell script finished its loop, not
+  that the measurements succeeded. Check that your `results.jsonl` grew.
+- `diag_a100.sh` hardcodes `$HOME/vllm_env` and ignores `LADDER_VENV`. If you
+  run it, you are testing your own build, not the shared one.
 - Acceptance is never compared across different draft lengths without
   truncating to a common one first. `summarize.py` does this; its `AL@5`
   column is the comparable number, not `tauC`.
