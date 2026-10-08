@@ -1,7 +1,11 @@
 # Work log
 
-A chronological record of what we ran, what broke, and how it was fixed.
-**Oldest first**, so it reads as a history you can replay from the top.
+A record of what we ran, what broke, and how it was fixed.
+
+**Newest first.** The common read of this file is "where are we now", so the
+latest entry is at the top. Entries stay internally chronological. If you are
+starting from scratch rather than catching up, read the replay block below,
+then jump to the bottom and come forward.
 
 For **what we learned**, see the dated notes in `notes/` and the claim
 register in `paper/claims.md`. This file is the record of *activity*,
@@ -49,113 +53,133 @@ scripts are the source of truth and this file can drift.
 
 ---
 
-## 30 Sep 2026 — environment, and six jobs that failed in five seconds
+## 8 Oct 2026 — drafter cost isolated, A100 unblocked
 
-**Built the environment.** Qwen3-8B and the DFlash drafter head downloaded to
-`/work/nvme/bikd/$USER/Speculative_Ladder/hf/hub`, LongBench-v2 bucketed into
-2K / 8K / 32K by prompt length, vLLM built from source at commit `bf13ecc2f`
-into `~/vllm_env`.
+**The rebuild finished.** `Successfully installed vllm`. Verified by counting
+cubins again:
 
-**Verified the runner pin by reading the source**, not by trusting a flag:
+| arch | before | after |
+|---|---|---|
+| sm_80 (A100) | 20 | **71** |
+| sm_86 (A40) | 40 | **51** |
+| sm_90 (H200) | — | **82** |
 
-```bash
-export VLLM_USE_V2_MODEL_RUNNER=0
-```
-
-This matters more than it looks. With the V2 runner, n-gram speculation
-silently falls back to the stable runner while DFlash stays on V2, so the two
-rungs would be measured on different code paths and the comparison would be
-meaningless. The harness now refuses to start without this set.
-
-**Six jobs failed in about five seconds each**, all with
-`ModuleNotFoundError: No module named 'vllm'`.
-
-*Cause:* the scripts ran `module load cray-python` but never activated the
-venv. Loading the Python module is not the same as entering the environment.
-
-*Fix:* added `source "$LADDER_VENV/bin/activate"` to the job script, with
-`LADDER_VENV` defaulting to `~/vllm_env`.
-
-**First real run** (22569403). All prompts submitted at once.
-
-*What went wrong:* nothing crashed, which is worse. vLLM batched as wide as
-memory allowed, so every rung lost to no speculation at all — 0.86x, 0.78x,
-0.71x — while acceptance looked healthy. The run measured vLLM's batching
-decision, not the drafter.
-
-*Fix:* explicit concurrency control via `max_num_seqs`, exposed as `CONC`.
-The speedups from this run are void; the acceptance numbers are still usable.
-We kept the run in the results because it is the right-hand end of the load
-axis, not a mistake.
-
-## 1 Oct 2026 — first valid measurement, and the coverage correction
+**A100 diagnostic with the new venv:**
 
 ```bash
-sbatch --export=ALL,BUCKET=2k,LIMIT=25,CONC="1 8 32" phase0.sh   # 22598608
+# diag_a100.sh hardcodes ~/vllm_env on line 40 and ignores LADDER_VENV,
+# so a variant was produced with sed rather than editing the original.
+sbatch diag_a100_multiarch.sh                                      # 22754950
 ```
 
-52 minutes on one A40. Three rungs (`off`, `ngram`, `dflash`) at concurrency
-1, 8 and 32.
+Step 1 passed. Step 2 reported `rms_norm OK` under
+`CUDA_LAUNCH_BLOCKING=1` on an A100. That is a real sm_80 kernel launch, so
+**the blocker is resolved and the hardware axis (C4) is reachable again.**
 
-**The result that set up the whole project:** tau is flat across load (DFlash
-2.543, 2.507, 2.470) while speedup collapses (1.86x, 1.49x, 1.03x). All of
-the variation lives in R, the verification cost ratio, not in acceptance.
+The same log shows `import vllm._C` raising `ModuleNotFoundError`. That is a
+defect in the diagnostic probe, not the build: this vLLM ships stable-ABI
+extensions named `_C_stable_libtorch`, `_moe_C_stable_libtorch` and
+`_vllm_fa2_C`, and has no module named `vllm._C` at all. The same probe fails
+identically on the A40, where everything works. The line that matters is the
+`rms_norm` dispatch on the next line.
 
-**Found a bug in how we were reading vLLM's numbers.** n-gram proposes a draft
-on only 13.2% of decode steps, but vLLM's reported acceptance rate is
-conditional on a draft having been proposed. Taken at face value it overstates
-what n-gram delivers by more than a factor of two. Added a third term:
+**C9 confirmed: R decomposes.** With the 2K and 8K sweeps in, fitting
+`R(k) = R_draft + c*k` over k = 1, 2, 7 at each bucket:
 
-```
-Speedup ~= [cov * tau_cond + (1 - cov)] / R
-```
+| bucket | R(1) | R(2) | R(7) | R_draft | c |
+|---|---|---|---|---|---|
+| 2K  | 1.305 | 1.322 | 1.360 | **0.296** | 0.0092 |
+| 8K  | 1.450 | 1.487 | 1.544 | **0.434** | 0.0157 |
+| 32K | 1.677 | 1.704 | 1.766 | **0.662** | 0.0148 |
 
-Corrected, n-gram's R is 1.082, *below* DFlash's 1.360 — which is what the
-hardware predicts, since n-gram does no model forward pass. `summarize.py`
-now reconstructs coverage from the draft and generation counters rather than
-printing vLLM's acceptance directly.
+The fixed per-step drafter cost grows **2.24x** from 2K to 32K. The marginal
+verification cost per drafted token is flat within noise. Drafting is 82 / 80
+/ 86 percent of DFlash's total overhead at 2K / 8K / 32K.
 
-## 5 Oct 2026 — losslessness, and harness v2
+**This is the mechanism behind the inversion.** Context taxes the drafter's
+own forward pass, not verification. n-gram has no forward pass to tax, which
+is why it barely decays and eventually wins. Write-up in
+`notes/2026-10-08-drafter-cost-scaling.md`.
 
-**Harness v2** (`HARNESS_VERSION = "v2-2026-10-05"`). Three additive changes,
-no default behaviour altered, installed before either queued job started so
-both picked it up without a cancel:
+*Footnote worth not forgetting:* first-position acceptance varies with k
+(0.570 / 0.589 / 0.601 at 2K for k = 1 / 2 / 7). Longer accepted runs sample
+a different context distribution, so "first-position acceptance" is not
+independent of k.
 
-- full output token ids, because a SHA-1 cannot distinguish one flipped token
-  from a different answer, and that distinction *is* the losslessness result
-- per-request timing, intended for a paired bootstrap
-- a prefix-caching switch (`--prefix-caching` / `--no-prefix-caching`)
+**Confirmed the paired bootstrap is not available on this build.**
+`request_timing(o)` is populated on **0 of 25** requests — this vLLM does not
+emit per-request metrics. There is one aggregate number per run and nothing to
+resample, so wall-clock speedup intervals can only come from repeated whole
+runs. Acceptance-side quantities may still be bootstrappable from data already
+on disk if the per-record counters are per-request rather than run-aggregate;
+unchecked.
 
-Every addition is guarded, so an instrumentation failure records a null rather
-than losing the run.
+**Decision:** nothing is promoted from `paper/claims.md` to
+`paper/conclusions.md` without an uncertainty interval. The inversion is
+currently recorded as a measurement, not a claim.
 
-**Investigated losslessness.**
+## 7 Oct 2026 — the k sweep refutes a prediction
+
+**32K landed, and the ranking inverted.** At concurrency 1: DFlash 0.83x,
+n-gram 1.08x. At 2K those were 1.86x and 1.16x. The ordering of the two rungs
+reverses with context length. Write-up in `notes/2026-10-06-32k-inversion.md`.
+
+**Predicted that k=1 would rescue DFlash at 32K, and was wrong.** Predicted
+1.17x, measured **0.76x** — the worst cell in the sweep.
+
+*Why the prediction failed:* we fitted `R = 1 + k*c` to a single data point by
+*assuming* the intercept was 1. It is not. The true fit at 32K is
+`R(k) = 1.662 + 0.0148k`. There is a large fixed cost that does not shrink
+when k shrinks, so cutting k cannot help. Write-up in
+`notes/2026-10-07-k-sweep-refutation.md`.
+
+**Also retracted:** "context does to k what load does to k". Wrong.
+Optimal k **rises** with context and **shrinks** with load.
+
+The k probe, reused unmodified at every bucket because it takes its grid from
+the environment:
 
 ```bash
-python3 check_lossless.py $PROJ/results/a40/results.jsonl
+sbatch --export=ALL,BUCKET=32k,LIMIT=25,CONC=1,KLIST="1 2 7 15" kprobe_32k.sh
 ```
 
-Version 1 of this script compared *generation lengths*, which was useless:
-every generation hits the 256-token cap, so all lengths are equal by
-construction. Rewrote it to compare token ids, and — the part that mattered —
-to run the baseline against *itself* first as a control.
-
-The control settled it. The `off` arm compared against itself at different
-concurrency, with no speculation anywhere, agrees on only 12.7% of sequences.
-Speculative arms agree with the baseline on 19.0%. Per-token divergence is
-0.80% baseline-vs-baseline against 0.65% speculative-vs-baseline.
-**Speculation perturbs the output less than the engine perturbs itself.** The
-question "is speculation lossless" is not answerable in absolute terms on this
-engine; it is only answerable relative to the engine's own noise floor.
-Write-up in `notes/2026-10-05-losslessness-and-engine-nondeterminism.md`.
-
-**Submitted two cells:**
+**Submitted the same probe at 2K and 8K**, to see whether the fixed cost is
+what context is taxing:
 
 ```bash
-sbatch --export=ALL,BUCKET=8k,LIMIT=25,CONC="1 8" phase0.sh       # 22685911
-sbatch --partition=gpuA100x4 --export=ALL,BUCKET=2k,LIMIT=25 \
-       phase0.sh                                                   # 22685764
+sbatch --export=ALL,BUCKET=2k,LIMIT=25,CONC=1,KLIST="1 2 7" kprobe_32k.sh  # 22737716
+sbatch --export=ALL,BUCKET=8k,LIMIT=25,CONC=1,KLIST="1 2 7" kprobe_32k.sh  # 22737717
 ```
+
+**Started the vLLM rebuild**, zero GPU hours, in tmux so a closed laptop
+could not kill it:
+
+```bash
+tmux new -s build
+bash rebuild_multiarch.sh          # then Ctrl-b then d to detach
+```
+
+`rebuild_multiarch.sh` builds the *same commit* `bf13ecc2f` with
+`TORCH_CUDA_ARCH_LIST="8.0;8.6;9.0"` into `$PROJ/vllm_env_multiarch`, and
+never touches `~/vllm_env`. Keeping the old venv intact matters: it produced
+every measurement we already have.
+
+*Build failure:* `ModuleNotFoundError: No module named 'setuptools_rust'`.
+
+*Cause:* the script looked for `requirements/build.txt`, but
+`requirements/build` is a **directory**.
+
+*Fix:*
+
+```bash
+pip install -r requirements/build/cuda.txt -r requirements/build/rust.txt
+```
+
+*Operational note for anyone doing this:* tmux survives an SSH drop, but Delta
+login nodes are round-robin, so you must reattach **on the same login node**.
+`tmux ls` on `dt-login01` will not show a session started on `dt-login02`.
+The build ran about four hours (432 object files, 451 FlashAttention-3 `.cu`
+sources, `ninja -j 4`).
 
 ## 6 Oct 2026 — 8K decays, A100 collapses
 
@@ -229,133 +253,113 @@ below a GPU's, and our R model predicts speculation is worthless there even at
 batch 1. Discussion section, not experiment plan. Specs need verifying from
 Cerebras's own sheet first.
 
-## 7 Oct 2026 — the k sweep refutes a prediction
+## 5 Oct 2026 — losslessness, and harness v2
 
-**32K landed, and the ranking inverted.** At concurrency 1: DFlash 0.83x,
-n-gram 1.08x. At 2K those were 1.86x and 1.16x. The ordering of the two rungs
-reverses with context length. Write-up in `notes/2026-10-06-32k-inversion.md`.
+**Harness v2** (`HARNESS_VERSION = "v2-2026-10-05"`). Three additive changes,
+no default behaviour altered, installed before either queued job started so
+both picked it up without a cancel:
 
-**Predicted that k=1 would rescue DFlash at 32K, and was wrong.** Predicted
-1.17x, measured **0.76x** — the worst cell in the sweep.
+- full output token ids, because a SHA-1 cannot distinguish one flipped token
+  from a different answer, and that distinction *is* the losslessness result
+- per-request timing, intended for a paired bootstrap
+- a prefix-caching switch (`--prefix-caching` / `--no-prefix-caching`)
 
-*Why the prediction failed:* we fitted `R = 1 + k*c` to a single data point by
-*assuming* the intercept was 1. It is not. The true fit at 32K is
-`R(k) = 1.662 + 0.0148k`. There is a large fixed cost that does not shrink
-when k shrinks, so cutting k cannot help. Write-up in
-`notes/2026-10-07-k-sweep-refutation.md`.
+Every addition is guarded, so an instrumentation failure records a null rather
+than losing the run.
 
-**Also retracted:** "context does to k what load does to k". Wrong.
-Optimal k **rises** with context and **shrinks** with load.
-
-The k probe, reused unmodified at every bucket because it takes its grid from
-the environment:
+**Investigated losslessness.**
 
 ```bash
-sbatch --export=ALL,BUCKET=32k,LIMIT=25,CONC=1,KLIST="1 2 7 15" kprobe_32k.sh
+python3 check_lossless.py $PROJ/results/a40/results.jsonl
 ```
 
-**Submitted the same probe at 2K and 8K**, to see whether the fixed cost is
-what context is taxing:
+Version 1 of this script compared *generation lengths*, which was useless:
+every generation hits the 256-token cap, so all lengths are equal by
+construction. Rewrote it to compare token ids, and — the part that mattered —
+to run the baseline against *itself* first as a control.
+
+The control settled it. The `off` arm compared against itself at different
+concurrency, with no speculation anywhere, agrees on only 12.7% of sequences.
+Speculative arms agree with the baseline on 19.0%. Per-token divergence is
+0.80% baseline-vs-baseline against 0.65% speculative-vs-baseline.
+**Speculation perturbs the output less than the engine perturbs itself.** The
+question "is speculation lossless" is not answerable in absolute terms on this
+engine; it is only answerable relative to the engine's own noise floor.
+Write-up in `notes/2026-10-05-losslessness-and-engine-nondeterminism.md`.
+
+**Submitted two cells:**
 
 ```bash
-sbatch --export=ALL,BUCKET=2k,LIMIT=25,CONC=1,KLIST="1 2 7" kprobe_32k.sh  # 22737716
-sbatch --export=ALL,BUCKET=8k,LIMIT=25,CONC=1,KLIST="1 2 7" kprobe_32k.sh  # 22737717
+sbatch --export=ALL,BUCKET=8k,LIMIT=25,CONC="1 8" phase0.sh       # 22685911
+sbatch --partition=gpuA100x4 --export=ALL,BUCKET=2k,LIMIT=25 \
+       phase0.sh                                                   # 22685764
 ```
 
-**Started the vLLM rebuild**, zero GPU hours, in tmux so a closed laptop
-could not kill it:
+## 1 Oct 2026 — first valid measurement, and the coverage correction
 
 ```bash
-tmux new -s build
-bash rebuild_multiarch.sh          # then Ctrl-b then d to detach
+sbatch --export=ALL,BUCKET=2k,LIMIT=25,CONC="1 8 32" phase0.sh   # 22598608
 ```
 
-`rebuild_multiarch.sh` builds the *same commit* `bf13ecc2f` with
-`TORCH_CUDA_ARCH_LIST="8.0;8.6;9.0"` into `$PROJ/vllm_env_multiarch`, and
-never touches `~/vllm_env`. Keeping the old venv intact matters: it produced
-every measurement we already have.
+52 minutes on one A40. Three rungs (`off`, `ngram`, `dflash`) at concurrency
+1, 8 and 32.
 
-*Build failure:* `ModuleNotFoundError: No module named 'setuptools_rust'`.
+**The result that set up the whole project:** tau is flat across load (DFlash
+2.543, 2.507, 2.470) while speedup collapses (1.86x, 1.49x, 1.03x). All of
+the variation lives in R, the verification cost ratio, not in acceptance.
 
-*Cause:* the script looked for `requirements/build.txt`, but
-`requirements/build` is a **directory**.
+**Found a bug in how we were reading vLLM's numbers.** n-gram proposes a draft
+on only 13.2% of decode steps, but vLLM's reported acceptance rate is
+conditional on a draft having been proposed. Taken at face value it overstates
+what n-gram delivers by more than a factor of two. Added a third term:
 
-*Fix:*
+```
+Speedup ~= [cov * tau_cond + (1 - cov)] / R
+```
+
+Corrected, n-gram's R is 1.082, *below* DFlash's 1.360 — which is what the
+hardware predicts, since n-gram does no model forward pass. `summarize.py`
+now reconstructs coverage from the draft and generation counters rather than
+printing vLLM's acceptance directly.
+
+## 30 Sep 2026 — environment, and six jobs that failed in five seconds
+
+**Built the environment.** Qwen3-8B and the DFlash drafter head downloaded to
+`/work/nvme/bikd/$USER/Speculative_Ladder/hf/hub`, LongBench-v2 bucketed into
+2K / 8K / 32K by prompt length, vLLM built from source at commit `bf13ecc2f`
+into `~/vllm_env`.
+
+**Verified the runner pin by reading the source**, not by trusting a flag:
 
 ```bash
-pip install -r requirements/build/cuda.txt -r requirements/build/rust.txt
+export VLLM_USE_V2_MODEL_RUNNER=0
 ```
 
-*Operational note for anyone doing this:* tmux survives an SSH drop, but Delta
-login nodes are round-robin, so you must reattach **on the same login node**.
-`tmux ls` on `dt-login01` will not show a session started on `dt-login02`.
-The build ran about four hours (432 object files, 451 FlashAttention-3 `.cu`
-sources, `ninja -j 4`).
+This matters more than it looks. With the V2 runner, n-gram speculation
+silently falls back to the stable runner while DFlash stays on V2, so the two
+rungs would be measured on different code paths and the comparison would be
+meaningless. The harness now refuses to start without this set.
 
-## 8 Oct 2026 — drafter cost isolated, A100 unblocked
+**Six jobs failed in about five seconds each**, all with
+`ModuleNotFoundError: No module named 'vllm'`.
 
-**The rebuild finished.** `Successfully installed vllm`. Verified by counting
-cubins again:
+*Cause:* the scripts ran `module load cray-python` but never activated the
+venv. Loading the Python module is not the same as entering the environment.
 
-| arch | before | after |
-|---|---|---|
-| sm_80 (A100) | 20 | **71** |
-| sm_86 (A40) | 40 | **51** |
-| sm_90 (H200) | — | **82** |
+*Fix:* added `source "$LADDER_VENV/bin/activate"` to the job script, with
+`LADDER_VENV` defaulting to `~/vllm_env`.
 
-**A100 diagnostic with the new venv:**
+**First real run** (22569403). All prompts submitted at once.
 
-```bash
-# diag_a100.sh hardcodes ~/vllm_env on line 40 and ignores LADDER_VENV,
-# so a variant was produced with sed rather than editing the original.
-sbatch diag_a100_multiarch.sh                                      # 22754950
-```
+*What went wrong:* nothing crashed, which is worse. vLLM batched as wide as
+memory allowed, so every rung lost to no speculation at all — 0.86x, 0.78x,
+0.71x — while acceptance looked healthy. The run measured vLLM's batching
+decision, not the drafter.
 
-Step 1 passed. Step 2 reported `rms_norm OK` under
-`CUDA_LAUNCH_BLOCKING=1` on an A100. That is a real sm_80 kernel launch, so
-**the blocker is resolved and the hardware axis (C4) is reachable again.**
-
-The same log shows `import vllm._C` raising `ModuleNotFoundError`. That is a
-defect in the diagnostic probe, not the build: this vLLM ships stable-ABI
-extensions named `_C_stable_libtorch`, `_moe_C_stable_libtorch` and
-`_vllm_fa2_C`, and has no module named `vllm._C` at all. The same probe fails
-identically on the A40, where everything works. The line that matters is the
-`rms_norm` dispatch on the next line.
-
-**C9 confirmed: R decomposes.** With the 2K and 8K sweeps in, fitting
-`R(k) = R_draft + c*k` over k = 1, 2, 7 at each bucket:
-
-| bucket | R(1) | R(2) | R(7) | R_draft | c |
-|---|---|---|---|---|---|
-| 2K  | 1.305 | 1.322 | 1.360 | **0.296** | 0.0092 |
-| 8K  | 1.450 | 1.487 | 1.544 | **0.434** | 0.0157 |
-| 32K | 1.677 | 1.704 | 1.766 | **0.662** | 0.0148 |
-
-The fixed per-step drafter cost grows **2.24x** from 2K to 32K. The marginal
-verification cost per drafted token is flat within noise. Drafting is 82 / 80
-/ 86 percent of DFlash's total overhead at 2K / 8K / 32K.
-
-**This is the mechanism behind the inversion.** Context taxes the drafter's
-own forward pass, not verification. n-gram has no forward pass to tax, which
-is why it barely decays and eventually wins. Write-up in
-`notes/2026-10-08-drafter-cost-scaling.md`.
-
-*Footnote worth not forgetting:* first-position acceptance varies with k
-(0.570 / 0.589 / 0.601 at 2K for k = 1 / 2 / 7). Longer accepted runs sample
-a different context distribution, so "first-position acceptance" is not
-independent of k.
-
-**Confirmed the paired bootstrap is not available on this build.**
-`request_timing(o)` is populated on **0 of 25** requests — this vLLM does not
-emit per-request metrics. There is one aggregate number per run and nothing to
-resample, so wall-clock speedup intervals can only come from repeated whole
-runs. Acceptance-side quantities may still be bootstrappable from data already
-on disk if the per-record counters are per-request rather than run-aggregate;
-unchecked.
-
-**Decision:** nothing is promoted from `paper/claims.md` to
-`paper/conclusions.md` without an uncertainty interval. The inversion is
-currently recorded as a measurement, not a claim.
+*Fix:* explicit concurrency control via `max_num_seqs`, exposed as `CONC`.
+The speedups from this run are void; the acceptance numbers are still usable.
+We kept the run in the results because it is the right-hand end of the load
+axis, not a mistake.
 
 ---
 
