@@ -1,5 +1,13 @@
 # n-gram's drafter cost is not zero, and it grows with context
 
+> **Partly superseded, 11 Oct 2026 (late).** The closing claim that optimal k
+> "rises with context and shrinks with load" is half wrong: the load axis has
+> no valid data at all, since its only source is the disqualified uncontrolled
+> run 22569403. And the statement below that the inversion "is driven by the
+> absolute gap, not the scaling" is withdrawn — a counterfactual on the
+> measured numbers shows cost alone does not flip the ranking. **The R_draft
+> measurements in this note are unaffected.** Register, C6 and C13.
+
 **Jobs** 22757472 (32K, 01:01:22) and 22757473 (2K, 00:58:58), both A40,
 concurrency 1, `KLIST="1 2 7"`, seed 1234, `vllm_env_multiarch`.
 **Script** `kprobe_ngram.sh`, a variant of `kprobe_32k.sh` with the n-gram

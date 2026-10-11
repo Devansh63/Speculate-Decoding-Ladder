@@ -1,5 +1,16 @@
 # tau transfers across hardware. R does not.
 
+> **Partly superseded, 11 Oct 2026 (late).** Two things in this note are
+> withdrawn by the second review of the same day. The bandwidth mechanism
+> offered for "speculation pays less on a faster machine" contradicts the ridge
+> points — the A100's ~201 FLOP/byte exceeds the A40's ~107, so roofline
+> predicts speculation should gain *more* there, and it gained less. And the
+> cache-pressure item in the list of explanations for a miss is withdrawn: a
+> concurrency-1 32K cell needs ~24 GB against 40 GB, so there is no capacity
+> pressure at that concurrency. **The tau and R measurements themselves are
+> unaffected — C16 and C17's observation stands; only C17's explanation is
+> withdrawn.** Register, C17.
+
 **Source** jobs 22757102 (A40, gpub067), 22757105 (A40, gpub085) and
 **22757104 (A100-SXM4-40GB, gpua045)** — all run by ssashi on 8 Oct as the
 `notes/teammate-quickstart.md` smoke test: 2K bucket, concurrency 1,

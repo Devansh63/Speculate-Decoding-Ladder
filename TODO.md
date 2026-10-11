@@ -88,9 +88,10 @@ Coarser, but the only option short of patching vLLM.
 
 ## Backlog, ordered by value per GPU-hour
 
-- [ ] **k sweep across buckets.** Finding 9 says optimal k shrinks with
-      context, and the 2K k=15 result says it shrinks with load too. A small
-      grid of k against bucket would turn two anecdotes into a surface.
+- [ ] **k sweep across buckets.** Optimal k **rises** with context (measured).
+      The load axis is **unmeasured**: the only load-varying k observation is
+      the disqualified 22569403, so a k-versus-load grid is not "turning two
+      anecdotes into a surface", it is the first valid data on that axis.
 - [ ] **n-gram coverage frontier.** Vary `prompt_lookup_min` (currently 3).
       n-gram's coverage rose on its own from 0.132 to 0.212 across the context
       range; forcing it higher trades acceptance for coverage. Needs a flag in

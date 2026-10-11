@@ -70,6 +70,50 @@ directory overwrites the first.
 
 ---
 
+## 11 Oct 2026 (late) — second review, and four claims withdrawn
+
+A second independent review, briefed only from `HANDOFF.md` and the
+repository, produced four objections, all backed by arithmetic. **All four
+accepted**, and three concern entries written earlier the same day. Full text
+in `paper/claims-corrections-2026-10-11b.md`, folded into `paper/claims.md`.
+None needed a GPU: a memory budget, a counterfactual on two measured numbers,
+and a ratio of two spec-sheet figures.
+
+1. **The capacity confound is withdrawn.** A concurrency-1 32K cell needs
+   ~24 GB — 16.4 weights + 4.9 target KV + 1.9 drafter + 0.7 drafter KV —
+   against the A100's 40 GB. No capacity pressure exists at the concurrency
+   the prediction is made at, so the clause was an escape hatch that had never
+   been checked. Withdrawn **before** any A100 cell at full n was read: jobs
+   22802261 (8K) and 22802262 (32K) were submitted and unread. 8K is still
+   weighted higher, on a better basis — the 1.054 factor was fitted at 2K and
+   `R`'s composition changes with context.
+2. **C13 is wrong as stated.** Cost alone does not flip the ranking: 2K
+   acceptance with 32K cost leaves DFlash at 1.44x, ahead of n-gram's 1.08x.
+   Acceptance alone roughly does: 32K acceptance with 2K cost gives 1.07x, a
+   tie. Both channels are needed; acceptance dominates.
+3. **C17's mechanism is withdrawn.** "Speculation reclaims wasted memory
+   bandwidth and a faster machine wastes less" contradicts the ridge points:
+   A100 ~201 FLOP/byte against A40 ~107, so naive roofline predicts
+   speculation should gain *more* on A100, and it gained less. Observation
+   stands, mechanism unexplained. Candidate hypothesis recorded — fixed
+   per-step overheads are a larger fraction of a faster GPU's step time.
+   **The spec sheets are now a prerequisite for any mechanism claim.**
+4. **C8's two realizations share one prompt set** — same 25 prompts, same
+   seed. They bound node and run-to-run variance, not prompt-sample variance.
+   Closing it needs a 32K concurrency-1 cell on a different prompt subset,
+   ~1 GPU-hour.
+
+Swept every file that repeated a withdrawn claim, per RULES section 8:
+`HANDOFF.md` (eight sites), `paper/results-table.md` (four),
+`paper/conclusions.md`, `TODO.md` and this file. Dated notes under `notes/`
+keep their bodies and carry superseded banners, because rewriting a dated note
+destroys the record of what was believed when.
+
+Also added, not yet submitted: `code/c10_control.sh` and `code/c10_control.py`
+— the same-config control C10 needs.
+
+---
+
 ## 11 Oct 2026 — first A100 data, and tau transfers
 
 ### A smoke test answered the central question
@@ -114,7 +158,9 @@ study assumes. Until now it was an assumption.
 Direction is right too: the A100 is 2.21x faster at plain decoding and
 speculation pays *less* there. Speculation reclaims wasted memory bandwidth,
 and a faster machine wastes less. **Spec sheets not yet verified**, so that is
-a direction rather than arithmetic.
+a direction rather than arithmetic. **[Superseded 11 Oct (late): the mechanism
+is withdrawn. The A100's ridge point is *higher* than the A40's, so roofline
+predicts speculation should gain more there. See the latest entry.]**
 
 Write-up in `notes/2026-10-11-hardware-transfer.md`; new claims C16 (tau
 invariant) and C17 (R scales by one factor, rung-independent).
@@ -157,6 +203,9 @@ inverting.
 the A100-SXM4 has 40 GB against the A40's 48, so the 32K concurrency ceiling
 is lower and that cell may sit in a different memory regime. A large 32K miss
 may be capacity rather than model. **Judge the prediction on 8K.**
+**[Withdrawn 11 Oct (late): a concurrency-1 32K cell needs ~24 GB against the
+A100's 40 GB, so the clause was never physically possible. See the latest
+entry.]**
 
 Wrote `code/submit_a100_predict.sh` to run the test — a login-node wrapper
 that calls the verified `phase0.sh` twice rather than reimplementing anything,
@@ -226,6 +275,8 @@ string search, and the difference is a constant factor of four to five.
 
 **So the inversion is driven by the absolute gap, not the scaling.** DFlash's
 penalty exceeds n-gram's by 0.225 at 2K and 0.523 at 32K. Claims C12, C13.
+**[Corrected 11 Oct (late): C12 stands, C13 was wrong as stated — cost alone
+does not flip the ranking. See the latest entry.]**
 
 **n-gram's acceptance is context-invariant** — tau_cond 1.670 at both buckets
 at k=1, first-position acceptance 0.670 at both, D = -0.000 / -0.008 / -0.007.
@@ -685,10 +736,13 @@ axis is assigned to it.
   `tokenspeed-triton-3.8.10` and may have displaced `triton-3.7.1`. If so, any
   A40-vs-A100 gap is confounded by more than the architecture list, which
   breaks the "same binary" premise behind C16 and C17.
-- **Verify the A100 and A40 spec sheets.** The bandwidth story behind C17 is a
-  direction, not arithmetic, until the numbers are checked.
-- **Bootstrap the agreement result.** Per-prompt, free, and the claim most in
-  need of an interval.
+- **Verify the A100 and A40 spec sheets.** Now a **prerequisite for any
+  mechanism claim**, not a nice-to-have: C17's bandwidth explanation was
+  withdrawn on 11 Oct and the review's ridge-point figures are unverified.
+- **Bootstrap the agreement result.** No longer free: the same-config control
+  has to be run first, because the token ids for the existing pairs were
+  overwritten. `code/c10_control.sh` (~0.32 GPU-hours) then
+  `code/c10_control.py` (free). The claim most in need of an interval.
 - **gpub073.** One slow node, ratio moving as a bandwidth-limited machine
   would. One line in the limitations unless it recurs.
 - **n-gram at 8K was never swept**, so the middle R_draft point is missing.

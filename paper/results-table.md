@@ -81,7 +81,9 @@ Three cells have been measured more than once. All are within-job ratios.
 | DFlash speedup | 0.8262 | 0.8260 |
 
 **0.08% and 0.02% agreement.** This is the inversion, and it is the
-best-replicated result in the project.
+best-replicated result in the project — replicated across **nodes and runs**,
+not across prompt samples: both jobs used the same 25 prompts and the same
+seed, so sampling variance is not bounded by this pair (register, C8, 11 Oct).
 
 **2K, batch 1, n=5** — two A40 nodes, same hour:
 
@@ -132,9 +134,12 @@ machines while cost does not?
 the same amount for both rungs** — rungs that differ by 4x in drafting cost
 and 7x in coverage. That is what a machine property looks like.
 
-The A100 is 2.21x faster at plain decoding and speculation pays *less* there,
-which is the expected direction: speculation reclaims wasted memory
-bandwidth, and a faster machine wastes less.
+The A100 is 2.21x faster at plain decoding and speculation pays *less* there.
+The explanation that used to follow — "speculation reclaims wasted memory
+bandwidth, and a faster machine wastes less" — is **withdrawn**: the A100's
+ridge point (~201 FLOP/byte against the A40's ~107) is *higher*, so naive
+roofline predicts speculation should gain *more* there. It gained less. The
+observation stands; the mechanism is unexplained (register, C17, 11 Oct).
 
 Two caveats on this table. **n=5**, so the per-position and coverage rows may
 be sampling noise rather than real — about 500 draft events per arm. And a
@@ -239,9 +244,13 @@ drafted token.
 | 32K | DFlash | **0.662** | 0.0148 | monotonic, 4 points |
 
 Growth across the context range: DFlash 2.24x, n-gram 1.96x. The **absolute
-gap** grows 0.225 to 0.523, and that is what flips the ranking — not a
-difference in how the two scale. Both costs are sublinear in context: a 16x
-longer prompt roughly doubles each, and nothing in the model explains why.
+gap** grows 0.225 to 0.523. **That gap is not what flips the ranking**, contra
+C13 as first written: a counterfactual on these measured numbers shows cost
+alone leaves DFlash ahead (2K acceptance with 32K cost = 1.44x against
+n-gram's 1.08x) while acceptance alone brings it to a tie (1.07x). Both
+channels are needed and acceptance dominates (register, C13, corrected 11
+Oct). Both costs are sublinear in context: a 16x longer prompt roughly doubles
+each, and nothing in the model explains why.
 
 Out-of-sample checks:
 
@@ -265,9 +274,13 @@ Any A100 or H200 job **must** set
 Without it the script falls back to a single-architecture build and the job
 dies at kernel launch after reserving a node, as job 22685764 did.
 
-Note that the A100-SXM4-40GB has **40 GB against the A40's 48**, so the
-concurrency ceiling at 32K is lower and a long-context A100 cell may sit in a
-different memory regime. Recorded as a pre-registered confound in `claims.md`.
+The A100-SXM4-40GB has **40 GB against the A40's 48**, which was recorded as a
+pre-registered confound at 32K. **That confound is withdrawn** (register, 11
+Oct): a concurrency-1 32K cell needs about 24 GB — 16.4 weights + 4.9 target KV
++ 1.9 drafter + 0.7 drafter KV — so there is no capacity pressure at the
+concurrency the prediction is made at. 8K is still weighted higher, on a
+different basis: the 1.054 machine factor was fitted at 2K, and `R`'s
+composition changes with context.
 
 ---
 

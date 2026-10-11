@@ -1,5 +1,12 @@
 # Losslessness, and why the first check looked like a disaster
 
+> **Restated, 11 Oct 2026 (late).** The strong claim this note is read as
+> supporting — that speculation perturbs output less than the engine perturbs
+> itself — is **not established**: the control varies batch size as well as
+> engine nondeterminism, while the treatment varies speculation alone at fixed
+> batch size. What is supported is narrower: changing concurrency perturbs
+> output more than adding speculation does at fixed concurrency. Register, C10.
+
 5 Oct 2026. A40 results, 2K bucket, jobs 22569403 and 22598608.
 
 ## What the first check said

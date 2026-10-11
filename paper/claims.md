@@ -525,3 +525,154 @@ different bases (one with token ids, one without) **silently returns 0%**,
 because a token list never equals a hash string. The tool now refuses to mix
 bases and reports which one it used, because a silent zero is exactly the kind
 of proxy this project keeps being caught by.
+
+---
+
+## Second review, 11 Oct 2026 (late) — four claims withdrawn
+
+Folds in `paper/claims-corrections-2026-10-11b.md`, which was committed
+separately so that it would land before the A100 results were read. That file
+stays as the record of what arrived when; this is the register's copy, and the
+append-only rule means neither edits an earlier entry. **All four objections
+are accepted**, and they concern entries made earlier the same day.
+
+Timing, recorded deliberately: the A100 cells (jobs **22802261** 8K and
+**22802262** 32K) were submitted before this was written, and **no A100 cell
+at full n had been read**. Withdrawing these now is housekeeping. Withdrawing
+them after seeing a 32K miss would have been moving the goalposts.
+
+This entry also **supersedes two statements in the external-review section
+above**: item 3's clause weighting 8K on the capacity confound, and item 2's
+sentence saying `HANDOFF.md` section 2.5 was deliberately left unchanged. The
+rules require the opposite — a withdrawn claim left standing elsewhere is
+worse than one never withdrawn — so section 2.5 and the other repeat sites
+were corrected in the same commit as this entry, and the list is at the end.
+
+### 5. WITHDRAWN: the capacity confound on the frozen prediction
+
+The frozen prediction carries a pre-registered confound saying that at 32K the
+A100's 40 GB against the A40's 48 GB may put the cell in a different memory
+regime. **Withdrawn. It fails its own arithmetic.** At concurrency 1 a 32K
+cell needs approximately:
+
+| item | size |
+|---|---|
+| Qwen3-8B weights, bf16 | ~16.4 GB |
+| target KV, 33,792 tokens at 144 KiB/token | ~4.9 GB |
+| DFlash-b16 drafter weights | ~1.9 GB |
+| drafter KV | ~0.7 GB |
+| **total** | **~24 GB** |
+
+Against 40 GB. It fits with room, and the prediction is a concurrency-1
+prediction. Arithmetic checked here, not taken on trust: 16.4 + 4.9 + 1.9 +
+0.7 = 23.9 GB, and 33,792 × 144 KiB = 4.86 GiB.
+
+An escape hatch written into a pre-registration without checking it was
+physically possible is worse than no clause at all, because it pre-licences
+explaining away a failure. Rule 11 now says so.
+
+**Replacement reason to weight 8K.** The instruction to judge primarily on 8K
+survives; the basis changes. The machine factor 1.054 was measured **only at
+2K**, and C9 says `R`'s composition changes with context — `R_draft` grows
+2.24x from 2K to 32K — so carrying a 2K-fitted factor to 32K is a materially
+longer extrapolation than carrying it to 8K. 8K is the nearer test.
+
+**A 32K-specific miss is informative, not excusable.** If 8K lands and 32K
+misses, the reading is that the machine factor is **context-dependent** — that
+`R` is not purely a machine property, because the drafter's cost over the
+prefix may scale differently across GPUs. That weakens **C17**, not merely
+C4. It is a result.
+
+### 6. C13 is wrong as stated
+
+C13 claims the inversion is driven by the absolute drafting-cost gap and
+**not** by a difference in how the two drafters scale. Tested by holding one
+factor at its 2K value and moving the other to its 32K value, on measured
+`tau_eff` and `R` for DFlash k=7 at concurrency 1:
+
+| counterfactual | speedup | against n-gram's 1.08x |
+|---|---|---|
+| 2K acceptance (tau_eff 2.536) with 32K cost (R 1.766) | **1.44x** | DFlash still wins — **no inversion** |
+| 32K acceptance (tau_eff 1.459) with 2K cost (R 1.360) | **1.07x** | **tied — inversion on the cusp** |
+
+Arithmetic checked here: 2.536/1.766 = 1.436 and 1.459/1.360 = 1.073.
+
+**Moving cost alone does not flip the ranking. Moving acceptance alone roughly
+does.** The cost arithmetic itself stands — `R_draft` does grow 2.24x against
+n-gram's 1.96x and the gap does widen 0.225 to 0.523. The error was building a
+cost-only causal story while C1 and C2 were already measuring a large
+acceptance collapse: DFlash's `tau_cond` falls 2.543 to 1.459 and its
+first-position acceptance 0.601 to 0.296, while n-gram's `tau_cond` is flat
+and its coverage *rises*. Both channels were in the data; only one went into
+the explanation.
+
+**Corrected:** the inversion requires both channels, and the acceptance
+channel is the larger contributor. The decomposition is order-dependent, as
+any counterfactual is; the asymmetry survives either ordering.
+
+### 7. C17's mechanism is withdrawn; the observation stands
+
+The A100 result was explained in `HANDOFF.md` section 2.7, `LOG.md` and
+`notes/2026-10-11-hardware-transfer.md` as a faster machine wasting less
+memory bandwidth, so speculation has less to reclaim. That contradicts a
+roofline reading:
+
+| GPU | peak bf16 | bandwidth | ridge point |
+|---|---|---|---|
+| A40 | ~74.8 TFLOPS | ~696 GB/s | ~107 FLOP/byte |
+| A100-SXM4-40GB | ~312 TFLOPS | ~1555 GB/s | ~201 FLOP/byte |
+
+The A100 has the higher ridge point, so more arithmetic intensity is needed
+before compute binds, leaving *more* headroom to convert bandwidth-bound
+decoding into compute-bound verification. Naive roofline therefore predicts
+speculation should gain **more** on A100. It gained **less** (DFlash 1.89x to
+1.79x, n-gram 1.14x to 1.06x). Ratios check out: 74.8/0.696 = 107 and
+312/1.555 = 201.
+
+**The observation stands, the mechanism does not.** Direction measured,
+mechanism unexplained. Candidate hypothesis, recorded as a hypothesis: at
+batch size 1, fixed per-step overheads — kernel launch, CPU scheduling,
+drafter setup — are a larger *fraction* of a faster GPU's step time, which
+would inflate `R` on the faster machine with no bandwidth story. Testable by
+profiling one step, not by more cells. **The spec-sheet figures above are from
+the review and are unverified against NVIDIA's published numbers; that check
+is a prerequisite for any mechanism claim in the paper, and it is free.**
+
+### 8. C8's two realizations share one prompt set
+
+Jobs 22713173 and 22714602 both used **the same 25 prompts with the same
+seed**. They therefore bound **node variance and run-to-run engine variance**,
+which is what they were cited for, and say **nothing about sampling variance
+across prompts**. At n=25 on a heavy-tailed quantity like long-prompt latency
+that is a real gap. The inversion's margin is ~30% and probably survives it,
+but "C8 is replicated" must carry the qualifier: **replicated across nodes and
+runs, not across prompt samples.**
+
+**What would close it:** a 32K cell at concurrency 1 on a *different* prompt
+subset — a different seed, or a different slice of the bucket. Roughly 1
+GPU-hour, and it tests something none of the existing repeats test.
+
+### Where each withdrawn claim was still standing, and what changed
+
+Rule 8: a claim withdrawn in one file but left standing in another is worse
+than not withdrawing it. Every repeat site, grepped rather than recalled:
+
+| file | withdrawn claim | treatment |
+|---|---|---|
+| `HANDOFF.md` §2.1, §4.2 | C8 "replicated" without the prompt-set qualifier | qualifier added |
+| `HANDOFF.md` §2.3 | C13 absolute-gap mechanism | corrected to both channels |
+| `HANDOFF.md` §2.5, §4.2 | optimal k shrinks with load | marked unmeasured |
+| `HANDOFF.md` §2.6, §4.2 | C10 strong form | restated in the narrow form |
+| `HANDOFF.md` §2.7, §5, §6.4 | C17 mechanism; capacity confound | mechanism withdrawn, confound withdrawn |
+| `paper/results-table.md` | mechanism, absolute gap, confound, "best-replicated" | all four corrected |
+| `paper/conclusions.md` | C10 strong form | corrected |
+| `TODO.md` | optimal k shrinks with load | corrected |
+| `LOG.md` | mechanism, confound, absolute gap | dated entry + inline markers |
+| `notes/2026-10-11-hardware-transfer.md` | mechanism, cache-pressure confound | dated banner |
+| `notes/2026-10-11-ngram-drafter-cost.md` | C13, k-shrinks-with-load | dated banner |
+| `notes/2026-10-11-noise-floor.md` | C8 "best-supported" | dated banner |
+| `notes/2026-10-05-losslessness-...md` | C10 strong form | dated banner |
+
+Dated notes keep their bodies: they are records of what was believed when, and
+rewriting them would destroy the same information the register exists to keep.
+Each carries a banner instead.

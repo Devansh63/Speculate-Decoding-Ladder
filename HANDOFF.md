@@ -80,7 +80,9 @@ At short context the trained head wins by a wide margin. At 32K it is *worse
 than not speculating at all*, while the cheap n-gram method still helps.
 **This is the project's main result, and it is replicated**: two independent
 jobs on two different physical nodes, three days apart, agree to 0.08% and
-0.02% on the speedup ratios.
+0.02% on the speedup ratios. That is replication across **nodes and runs**,
+not across prompt samples — both jobs used the same 25 prompts and the same
+seed, so sampling variance is untouched (C8's qualifier, register, 11 Oct).
 
 ### 2.2 The mechanism: context taxes drafting, not verification
 
@@ -104,9 +106,15 @@ expensive; it does not make verification expensive.
 We assumed n-gram's `R_draft` was ~0 because it runs no model. Measured, it is
 0.071 at 2K and ~0.139 at 32K — it has to *scan the prompt*, and a 32K prompt
 is 16x more text. Both drafters pay a context tax at a similar **relative**
-rate (1.96x against 2.24x). **The inversion is driven by the absolute gap**
-between the two drafting costs (0.225 at 2K growing to 0.523 at 32K), not by
-different scaling.
+rate (1.96x against 2.24x). The absolute gap between the two drafting costs
+does widen, 0.225 at 2K to 0.523 at 32K — but **that is not what drives the
+inversion.** A counterfactual on the measured numbers shows cost alone does
+not flip the ranking (2K acceptance with 32K cost gives DFlash 1.44x, still
+ahead of n-gram's 1.08x) while acceptance alone roughly does (32K acceptance
+with 2K cost gives 1.07x, a tie). Both channels are required, and the
+acceptance channel is the larger contributor: DFlash's `tau_cond` falls 2.543
+to 1.459 while n-gram's is flat. C13 as originally written was wrong;
+corrected in the register, 11 Oct.
 
 ### 2.4 Acceptance profiles are qualitatively different
 
@@ -122,21 +130,35 @@ DFlash's drafts are worthless past position 2. n-gram's still pay at position
 at both 2K and 32K at k=1) while its **coverage rises** (0.132 → 0.161 →
 0.212), because a longer prompt offers more places for a lookup to hit.
 
-### 2.5 Optimal k rises with context and shrinks with load
+### 2.5 Optimal k rises with context; the load axis is unmeasured
 
-These two axes act in **opposite** directions. An earlier claim that they
-behaved alike was retracted. DFlash's speedup rises monotonically in k at
-every bucket with no turn by k=7; the only place k=15 loses to k=7 is 2K under
-unbounded batching.
+DFlash's speedup rises monotonically in k at every bucket with no turn by k=7;
+the only place k=15 loses to k=7 is 2K under unbounded batching. That single
+point is the entire evidence for a load effect, and it comes from job 22569403
+— the uncontrolled run this repository disqualifies as measuring the batching
+decision rather than the drafter. **No controlled k sweep exists at any
+concurrency above 1 at any bucket, so "optimal k shrinks with load" is
+unmeasured, not established.** Corrected 11 Oct; register, C6.
 
 ### 2.6 "Lossless" is only meaningful relative to the engine's noise floor
 
 Comparing output token ids: the `off` arm against **itself** at different
 concurrency, with no speculation anywhere, agrees on only **12.7%** of
 sequences. Speculative arms agree with the baseline on **19.0%**. Per-token
-divergence 0.80% against 0.65%. **Speculation perturbs output less than the
-engine perturbs itself.** The eager and compiled execution paths also
+divergence 0.80% against 0.65%. The eager and compiled execution paths also
 disagree under greedy decoding with the same seed.
+
+**What that supports, and what it does not.** The control varies two things —
+engine non-determinism *and* batch size — while the treatment varies one:
+speculation, at fixed batch size. So the supported claim is the narrow one:
+**changing concurrency perturbs output more than adding speculation does at
+fixed concurrency.** The strong form, that speculation perturbs output less
+than the engine perturbs itself, is **not established** and needs a
+same-config `off`-against-`off` control that does not yet exist. The 12.7% is
+also a weaker control than it looks: the surviving 2K `c=1` per-request file
+was written by a *later* job than its `c=8` and `c=32` siblings, so that pair
+differs in node and harness revision as well as batch size. Register, C10,
+corrected 11 Oct.
 
 ### 2.7 tau transfers across hardware; R does not
 
@@ -153,9 +175,14 @@ First paired A40/A100 measurement, 2K, concurrency 1:
 Acceptance transfers to under 1%. The cost ratio shifts 5.5%, **and by the
 same amount for both rungs** — rungs that differ 4x in drafting cost and 7x in
 coverage. That is the signature of a machine property. The A100 is 2.2x faster
-and speculation pays *less* there, which is the expected direction:
-speculation reclaims wasted memory bandwidth, and a faster machine wastes
-less. **Caveat: n=5.**
+and speculation pays *less* there. **Caveat: n=5.** The explanation that used
+to follow here — "speculation reclaims wasted memory bandwidth, and a faster
+machine wastes less" — has been **withdrawn**: it contradicts a roofline
+reading. The A100's ridge point (~201 FLOP/byte) is *higher* than the A40's
+(~107), which leaves more headroom to convert bandwidth-bound decoding into
+compute-bound verification, so naive roofline predicts speculation should gain
+*more* on A100. It gained less. **The observation stands; the mechanism is
+unexplained** (register, C17, 11 Oct).
 
 ---
 
@@ -181,7 +208,7 @@ Read in this order. Everything here is current.
 | 12 | `notes/2026-10-01-a40-2k-concurrency-sweep.md` | the load axis, and the founding result |
 | 13 | `notes/teammate-quickstart.md` | how to run a job. Read before running anything. |
 | 14 | `env/gpu-support.md`, `env/a100-sm80-failure.md` | the hardware situation and how it broke |
-| 15 | `code/` | `run_benchmark.py` (harness), `phase0.sh` (the job script), `kprobe_32k.sh` (k sweeps), `summarize.py`, `check_lossless.py`, `diag_a100.sh`, `rebuild_multiarch.sh`, `submit_a100_predict.sh`. **Not in this repository:** `kprobe_ngram.sh` and `diag_a100_multiarch.sh` were both built with `sed` on Delta (section 8.6) and have never been pushed; they exist only at `/projects/bikd/dagraw2/Speculative_Ladder/ladder/scripts/`. Corrected 11 Oct 2026 — a read order that names files the reader cannot open sends them hunting for a file that is not there. |
+| 15 | `code/` | `run_benchmark.py` (harness), `phase0.sh` (the job script), `kprobe_32k.sh` (k sweeps), `summarize.py`, `check_lossless.py`, `diag_a100.sh`, `rebuild_multiarch.sh`, `submit_a100_predict.sh`, `c10_control.sh` + `c10_control.py` (the C10 same-config control and its bootstrap). **Not in this repository:** `kprobe_ngram.sh` and `diag_a100_multiarch.sh` were both built with `sed` on Delta (section 8.6) and have never been pushed; they exist only at `/projects/bikd/dagraw2/Speculative_Ladder/ladder/scripts/`. Corrected 11 Oct 2026 — a read order that names files the reader cannot open sends them hunting for a file that is not there. |
 | 16 | `results/` | raw JSONL plus per-request JSON files |
 | 17 | `TODO.md` | task list |
 
@@ -240,25 +267,42 @@ See `paper/claims.md` for the authoritative version. Summary:
   — **unblocked and under test.** See section 5.
 - **C5** (the two rungs are of opposite type) — holds at three buckets.
 - **C6** (draft length matters) — partly refuted and then settled: optimal k
-  rises with context, shrinks with load.
+  **rises** with context. The load axis is unmeasured: its only evidence is the
+  disqualified uncontrolled run 22569403.
 - **C7** (engine-reported acceptance is conditional and needs a coverage term)
   — measured.
 - **C8** (the ranking inverts along the context axis) — **measured and
-  replicated across two nodes to 0.08%.** The best-supported claim.
+  replicated across two nodes to 0.08%.** The best-supported claim — but the
+  replication bounds node and run-to-run variance, not prompt-sample variance,
+  because both jobs used the same 25 prompts and seed.
 - **C9** (drafting cost is fixed per step and grows with context) — measured
   for both rungs.
-- **C10** (speculation perturbs output less than the engine perturbs itself) —
-  measured; needs an interval, which is obtainable for free (section 6).
+- **C10** (changing concurrency perturbs output more than adding speculation
+  does at fixed concurrency) — **measured in this narrow form only.** The
+  strong form, that speculation perturbs output less than the engine perturbs
+  itself, is not established by the design. Needs a same-config control and an
+  interval; `code/c10_control.py` does the bootstrap, and `code/c10_control.sh`
+  runs the control.
 - **C11** (run-to-run variance) — restated: **speedup ratios** replicate
   across nodes to 0.03–0.08%, **absolute throughput** does not (8.8% against
   one node). Report ratios.
-- **C12, C13** (every drafter pays a context tax; the inversion is driven by
-  the absolute gap) — measured at two buckets.
+- **C12** (every drafter pays a context tax) — measured at two buckets.
+- **C13** (the inversion is driven by the absolute drafting-cost gap) —
+  **corrected 11 Oct: wrong as stated.** Cost alone does not flip the ranking
+  (2K acceptance with 32K cost still leaves DFlash ahead at 1.44x); acceptance
+  alone roughly does (1.07x, a tie). Both channels are needed and acceptance
+  dominates.
 - **C14** (n-gram's acceptance is context-invariant) — measured.
-- **C15** (n-gram is *faster* at long context) — **demoted.** A 4% cross-job
-  claim whose long-context half came from an anomalous node.
+- **C15** (n-gram and context) — **corrected twice.** "Faster at long context"
+  was demoted (a 4% cross-job claim whose long-context half came from an
+  anomalous node), and the replacement "does not degrade with context" is also
+  wrong: at matched k=5 the speedup falls 6.7%, from 1.1556 to 1.0782, with
+  both realizations at each end agreeing to ~0.1%. Correct statement: n-gram
+  degrades mildly with context, far less than DFlash.
 - **C16, C17** (tau is machine-invariant; R scales by a single rung-independent
-  factor) — measured, one pair, n=5.
+  factor) — measured, one pair, n=5. **C17's mechanism is withdrawn**: the
+  bandwidth explanation contradicts the ridge points. The observation stands
+  with the mechanism unexplained.
 
 ### 4.3 What is NOT established
 
@@ -305,11 +349,15 @@ sample and does not count as a test.
 **Fails** if median absolute relative error exceeds 10%, or 32K does not
 invert.
 
-**Pre-registered confound:** the A100-SXM4 has 40 GB against the A40's 48, so
-the 32K concurrency ceiling is lower and that cell may sit in a different
-memory regime. A large 32K miss may be a capacity artifact rather than a
-failure of the cost model. **Judge the prediction primarily on 8K.** This was
-recorded before the measurement so it cannot be used as an excuse afterwards.
+**The capacity confound originally recorded here is WITHDRAWN** (register, 11
+Oct). It said the A100's 40 GB against the A40's 48 GB might put a 32K cell in
+a different memory regime; a concurrency-1 32K cell needs about 24 GB, so it
+does not. **Judge the prediction primarily on 8K**, on a different basis: the
+1.054 machine factor was fitted at 2K and `R`'s composition changes with
+context, so carrying it to 32K is a longer extrapolation than carrying it to
+8K. A 32K-specific miss is therefore **informative, not excusable** — it would
+mean the machine factor is context-dependent, which weakens C17 rather than
+merely C4.
 
 **The test** is `code/submit_a100_predict.sh`, one command, ~1.5 GPU-hours.
 This is the highest-value GPU time available to the project.
@@ -324,14 +372,18 @@ This is the highest-value GPU time available to the project.
    duplicate keys. It currently keys on `(bucket, conc, rung, k)` and silently
    keeps one record per key. This hid a genuine replication for four days and
    caused three wrong write-ups in one day. Highest-value change in the repo.
-2. **Bootstrap the agreement result** (C10). Per-prompt, from `token_ids`
-   already on disk. Paired construction: resample prompt ids with replacement,
-   compute both agreement rates on the same resampled set, report an interval
-   on the *difference*.
+2. **Run the same-config control for C10** (`code/c10_control.sh`, A40, ~0.32
+   GPU-hours) and bootstrap it (`code/c10_control.py`, free). The bootstrap
+   over prompts is legitimate here, unlike speedup and tau, because agreement
+   is a per-prompt binary needing no per-request timing. This replaces the
+   earlier "bootstrap the agreement result from token_ids already on disk":
+   the token ids for the pairs that existed were overwritten, so the control
+   has to be re-run.
 3. **Quality evaluation.** Decode stored token ids, score LongBench-v2
    multiple choice. Login node.
-4. **Verify the A100 and A40 spec sheets.** The bandwidth story behind C17 is
-   a direction, not arithmetic, until the numbers are checked.
+4. **Verify the A100 and A40 spec sheets.** Now a **prerequisite for any
+   mechanism claim**, not a nice-to-have: C17's bandwidth explanation has been
+   withdrawn and the review's ridge-point figures are unverified. Free.
 
 **GPU hours required:**
 
@@ -560,8 +612,9 @@ Four things to internalise before you touch anything:
 
 A frozen prediction is currently under test — see section 5 of `HANDOFF.md`
 and "Frozen prediction, 11 Oct 2026" in `paper/claims.md`. It was committed
-before the measurement, with a pass/fail criterion and a pre-registered
-confound. Do not revise it; report whether it passed.
+before the measurement, with a pass/fail criterion. Do not revise it; report
+whether it passed. (The capacity-confound clause that accompanied it has since
+been withdrawn as physically impossible — register, 11 Oct.)
 
 Priorities are in section 6, free work first. Tell me what you would do and
 what it costs before you do it.

@@ -1,5 +1,10 @@
 # Ratios replicate to 0.1%; absolute throughput does not
 
+> **Qualified, 11 Oct 2026 (late).** The statement below that C8 is "now the
+> best-supported number in the project" holds for **node and run-to-run
+> variance only**. Both realizations used the same 25 prompts and the same
+> seed, so prompt-sample variance is untouched by them. Register, C8.
+
 **Third version of this note.** The first two were written from
 `summarize.py` output and were both wrong. This one is written from the
 stored per-record data, which was there the whole time. The sequence of

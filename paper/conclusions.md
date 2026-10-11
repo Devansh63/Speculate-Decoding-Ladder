@@ -126,7 +126,11 @@ Comparing the no-speculation arm **against itself** at different concurrency,
 same prompts, same seed, no speculation anywhere: the outputs agree on only
 **12.7%** of sequences. Speculative arms against the baseline agree on **19.0%**.
 
-**Speculation perturbs the output less than the engine perturbs itself.** Implied
+**Changing concurrency perturbs output more than adding speculation does at
+fixed concurrency.** The stronger reading — that speculation perturbs output
+less than the engine perturbs itself — does not follow from this design: the
+control varies batch size *and* nondeterminism, while the treatment varies
+speculation alone (register, C10, corrected 11 Oct). Implied
 per-token divergence is 0.80% baseline-to-baseline and 0.65%
 speculative-to-baseline. The causes are batch-dependent reduction order in GPU
 kernels and prefix caching.
