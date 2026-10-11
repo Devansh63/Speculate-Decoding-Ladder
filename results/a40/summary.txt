@@ -4,8 +4,10 @@
      2K  auto   dflash  15  100    316.3     0.78  2.823  2.801  1.000  3.587  2.545  0.656
      2K  auto    ngram   5  100    289.0     0.71  2.979  1.271  0.137  1.781  2.979  0.608
      2K  auto      off   0  100    405.1     1.00  1.000  1.000  0.000  1.000              
+     2K     1   dflash   1   50     39.1     1.20  1.570  1.568  0.997  1.305  1.570  0.570
+     2K     1   dflash   2   50     47.8     1.47  1.942  1.940  0.998  1.322  1.942  0.589
      2K     1   dflash   7   50     60.7     1.86  2.543  2.536  1.000  1.360  2.421  0.601
-     2K     1    ngram   5   50     37.6     1.16  2.889  1.250  0.132  1.082  2.889  0.601
+     2K     1    ngram   5   50     37.6     1.15  2.889  1.250  0.132  1.083  2.889  0.601
      2K     1      off   0   50     32.6     1.00  1.000  1.000  0.000  1.000              
      2K     8   dflash   7   50    255.7     1.49  2.507  2.498  1.000  1.681  2.393  0.600
      2K     8    ngram   5   50    183.6     1.07  2.834  1.245  0.134  1.167  2.834  0.601
@@ -13,9 +15,11 @@
      2K    32   dflash   7   50    344.7     1.03  2.470  2.465  1.000  2.399  2.369  0.597
      2K    32    ngram   5   50    273.3     0.81  2.871  1.247  0.132  1.531  2.871  0.605
      2K    32      off   0   50    335.5     1.00  1.000  1.000  0.000  1.000              
-     8K     1   dflash   7   50     34.8     1.26  1.953  1.947  1.000  1.546  1.891  0.451
-     8K     1    ngram   5   50     31.5     1.14  2.762  1.284  0.161  1.124  2.762  0.563
-     8K     1      off   0   50     27.6     1.00  1.000  1.000  0.000  1.000              
+     8K     1   dflash   1   50     26.6     0.96  1.395  1.393  0.996  1.450  1.395  0.395
+     8K     1   dflash   2   50     30.4     1.10  1.631  1.629  0.997  1.487  1.631  0.426
+     8K     1   dflash   7   50     35.0     1.26  1.953  1.947  1.000  1.544  1.891  0.451
+     8K     1    ngram   5   50     31.8     1.15  2.762  1.284  0.161  1.120  2.762  0.563
+     8K     1      off   0   50     27.7     1.00  1.000  1.000  0.000  1.000              
      8K     4   dflash   7   50     75.9     1.11  1.941  1.939  1.000  1.744  1.884  0.451
      8K     4    ngram   5   50     73.2     1.07  2.857  1.315  0.169  1.227  2.857  0.577
      8K     4      off   0   50     68.3     1.00  1.000  1.000  0.000  1.000              
@@ -46,12 +50,16 @@ draft counters
      2K  auto   dflash   7     10189      71323      15491     25600     0.217
      2K  auto   dflash  15      9141     137115      16664     25600     0.122
      2K  auto    ngram   5      2756      13778       5454     25600     0.396
+     2K     1   dflash   1      8135       8135       4638     12800     0.570
+     2K     1   dflash   2      6582      13164       6202     12800     0.471
      2K     1   dflash   7      5048      35336       7789     12800     0.220
      2K     1    ngram   5      1355       6774       2560     12800     0.378
      2K     8   dflash   7      5124      35868       7724     12800     0.215
      2K     8    ngram   5      1375       6875       2522     12800     0.367
      2K    32   dflash   7      5193      36351       7636     12800     0.210
      2K    32    ngram   5      1353       6765       2532     12800     0.374
+     8K     1   dflash   1      9149       9149       3613     12800     0.395
+     8K     1   dflash   2      7831      15662       4943     12800     0.316
      8K     1   dflash   7      6574      46018       6267     12800     0.136
      8K     1    ngram   5      1606       8023       2829     12800     0.353
      8K     4   dflash   7      6602      46214       6212     12800     0.134
@@ -72,12 +80,16 @@ acceptance by draft position
      2K c=auto   dflash k=7   0.601, 0.360, 0.218, 0.136, 0.091, 0.065, 0.048
      2K c=auto   dflash k=15  0.656, 0.401, 0.240, 0.148, 0.100, 0.069, 0.052, 0.039, 0.031, 0.024, 0.019, 0.016, 0.011, 0.009, 0.007
      2K c=auto    ngram k=5   0.608, 0.457, 0.364, 0.297, 0.254
+     2K c=1      dflash k=1   0.570
+     2K c=1      dflash k=2   0.589, 0.354
      2K c=1      dflash k=7   0.601, 0.360, 0.219, 0.140, 0.101, 0.072, 0.051
      2K c=1       ngram k=5   0.601, 0.440, 0.345, 0.277, 0.226
      2K c=8      dflash k=7   0.600, 0.350, 0.214, 0.136, 0.093, 0.067, 0.047
      2K c=8       ngram k=5   0.601, 0.423, 0.324, 0.263, 0.223
      2K c=32     dflash k=7   0.597, 0.355, 0.208, 0.126, 0.083, 0.061, 0.041
      2K c=32      ngram k=5   0.605, 0.435, 0.339, 0.271, 0.222
+     8K c=1      dflash k=1   0.395
+     8K c=1      dflash k=2   0.426, 0.205
      8K c=1      dflash k=7   0.451, 0.213, 0.110, 0.070, 0.047, 0.035, 0.027
      8K c=1       ngram k=5   0.563, 0.420, 0.310, 0.253, 0.215
      8K c=4      dflash k=7   0.451, 0.210, 0.111, 0.066, 0.046, 0.032, 0.025
@@ -95,13 +107,21 @@ acceptance by draft position
     32K c=4       ngram k=5   0.553, 0.398, 0.321, 0.275, 0.235
 
 concurrency sensitivity, per bucket and rung
+     2K  dflash k=1   c=1: 1.20x (tauC 1.57)
+        still above 1.00x at the widest concurrency tested (1)
+     2K  dflash k=2   c=1: 1.47x (tauC 1.94)
+        still above 1.00x at the widest concurrency tested (1)
      2K  dflash k=7   c=1: 1.86x (tauC 2.54)   c=8: 1.49x (tauC 2.51)   c=32: 1.03x (tauC 2.47)
         still above 1.00x at the widest concurrency tested (32)
-     2K   ngram k=5   c=1: 1.16x (tauC 2.89)   c=8: 1.07x (tauC 2.83)   c=32: 0.81x (tauC 2.87)
+     2K   ngram k=5   c=1: 1.15x (tauC 2.89)   c=8: 1.07x (tauC 2.83)   c=32: 0.81x (tauC 2.87)
         crosses 1.00x between concurrency 8 and 32, interpolated at about 14.4
+     8K  dflash k=1   c=1: 0.96x (tauC 1.39)
+        already below 1.00x at the narrowest concurrency tested (1)
+     8K  dflash k=2   c=1: 1.10x (tauC 1.63)
+        still above 1.00x at the widest concurrency tested (1)
      8K  dflash k=7   c=1: 1.26x (tauC 1.95)   c=4: 1.11x (tauC 1.94)   c=12: 1.02x (tauC 2.00)
         still above 1.00x at the widest concurrency tested (12)
-     8K   ngram k=5   c=1: 1.14x (tauC 2.76)   c=4: 1.07x (tauC 2.86)   c=12: 0.96x (tauC 2.81)
+     8K   ngram k=5   c=1: 1.15x (tauC 2.76)   c=4: 1.07x (tauC 2.86)   c=12: 0.96x (tauC 2.81)
         crosses 1.00x between concurrency 4 and 12, interpolated at about 8.9
     32K  dflash k=1   c=1: 0.76x (tauC 1.28)
         already below 1.00x at the narrowest concurrency tested (1)
@@ -115,6 +135,10 @@ concurrency sensitivity, per bucket and rung
         crosses 1.00x between concurrency 2 and 4, interpolated at about 3.7
 
 decay D = 1 - AL(long) / AL(2K), at a common truncation of k=5, matched on concurrency
+  dflash k=1 c=1: 2K 1.570 -> 8K 1.395   D = +0.112
+  dflash k=1 c=1: 2K 1.570 -> 32K 1.278   D = +0.186
+  dflash k=2 c=1: 2K 1.942 -> 8K 1.631   D = +0.160
+  dflash k=2 c=1: 2K 1.942 -> 32K 1.336   D = +0.312
   dflash k=7 c=1: 2K 2.421 -> 8K 1.891   D = +0.219
   dflash k=7 c=1: 2K 2.421 -> 32K 1.448   D = +0.402
   ngram k=5 c=1: 2K 2.889 -> 8K 2.762   D = +0.044
