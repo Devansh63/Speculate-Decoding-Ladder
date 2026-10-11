@@ -691,6 +691,10 @@ sacct -S 2026-09-30 -u $USER -X \
 | Repeats desirable but **not blocking** | C8 has two independent realizations agreeing to 0.1% | 11 Oct |
 | **Freeze the A100 prediction before measuring it** | Rule 4. A prediction tested after the fact is not a prediction | 11 Oct |
 | Submit the A100 test with a wrapper, not a new batch script | `submit_a100_predict.sh` calls the verified `phase0.sh` twice rather than reimplementing the harness | 11 Oct |
+| **Pre-commit the response to the A100 test** as a decision tree, before its records are read | So the reading of each outcome is fixed in advance, not fitted. `notes/2026-10-11-a100-decision-tree.md` | 11 Oct |
+| **Intervals from disjoint prompt subsets**, five per bucket, each its own job and directory; same-prompt repeats do not count | Per-request timing is unavailable; independent samples were available all along in the unused prompt dimension. `SEED` is inert under greedy | 11 Oct |
+| **Measurement stops end of 17 Oct**; the last three days before the review are the write-up | The deliverable is a document | 11 Oct |
+| **H200 fit waits for the subset intervals** and freezes a predicted range, not a point | Two parameters on two machines has zero residual, so a point fit would carry no uncertainty and a miss would be uninterpretable | 11 Oct |
 
 ---
 

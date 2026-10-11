@@ -67,7 +67,11 @@ inert.
 The remaining path is **repeated runs**, estimating run-to-run variance.
 Coarser, but the only option short of patching vLLM.
 
-- [ ] Sahil's `SEED=5678` 2K repeat, already assigned. This is now foundational
+- [x] ~~Sahil's `SEED=5678` 2K repeat~~ **Struck 11 Oct:** `SEED` only reaches
+      `SamplingParams`, inert under greedy, and the harness always reads the first
+      `LIMIT` lines, so a different seed re-measures the same prompts. Replaced by
+      disjoint prompt subsets, `notes/2026-10-11-a100-decision-tree.md` section 3.
+      Was listed as foundational
       rather than optional.
 - [ ] **Repeat the 32K cell at least twice.** The headline claim lives there
       and currently rests on 25 prompts in a single run. Highest priority after
