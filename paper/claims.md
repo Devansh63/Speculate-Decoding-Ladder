@@ -483,3 +483,45 @@ evidence.
   consequence the paper wants — rung *and* draft length chosen per request —
   therefore rests on one axis, not two, and the missing one is exactly the
   axis a per-request controller would need.
+
+### C10 addendum, 11 Oct 2026, later the same day — the overwrite is measured
+
+Item 1 above recorded the cross-job overwrite as an inference from the file
+inventory. It is now measured directly, from the per-request files themselves:
+
+| `perreq_*_2K_k0_n50_s1234_*.json` | fields present | records with `token_ids` |
+|---|---|---|
+| `…_c1.json` | `finish_reason`, `timing`, `token_ids` | **50/50** |
+| `…_c8.json` | v1 fields only | 0/50 |
+| `…_c32.json` | v1 fields only | 0/50 |
+
+The 2K concurrency grid was measured by job 22598608 on **1 Oct**, three days
+before harness v2 (5 Oct) began writing `timing` and `token_ids`. Its `c8` and
+`c32` arms still carry v1 fields only. Its `c1` arm carries v2 fields. The
+surviving `c1` file was therefore written by a later job — 22737716, 7 Oct —
+into the same output directory, as section 8.5 of `HANDOFF.md` says it would
+be. So the control's `c1`-against-`c8` pair differs in **four** respects, not
+two: process, batch size (1 against 8), node (gpub014 against gpub036), and
+harness revision (v1 against v2). It is not a within-job comparison at all.
+
+Consequences, all checkable from this repository:
+
+- The recorded control figure of 12.7% is the mean of the three 2K pairwise
+  rates, every one of them cross-job: **14%** (`c1` vs `c8`), **10%**
+  (`c1` vs `c32`), **14%** (`c8` vs `c32`). Re-running `check_lossless.py` on
+  `results/a40` on 11 Oct reproduces them exactly.
+- The same tool gives 32K 32/16/24% and 8K 16/16/18%. Agreement is *better* at
+  32K, where batch sizes are smaller — the opposite of what a batch-size story
+  alone would predict, and further reason to run the clean control.
+- Only `sha1` can be compared for these pairs, because the v1 files carry no
+  token ids. Position-level divergence is unavailable for the confounded
+  pairs even in principle.
+
+`code/c10_control.py` implements the missing control, including the paired
+bootstrap over prompts that rule 1 asks for — legitimate here because
+agreement is a per-prompt binary and needs no per-request timing, unlike
+speedup and tau. Written while testing it: a comparison whose two files have
+different bases (one with token ids, one without) **silently returns 0%**,
+because a token list never equals a hash string. The tool now refuses to mix
+bases and reports which one it used, because a silent zero is exactly the kind
+of proxy this project keeps being caught by.
