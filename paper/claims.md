@@ -136,3 +136,98 @@ Order of operations for the 32K bucket, which is where every headline lives:
 
 C15 is the claim most exposed to this, since a 1.14x against 1.18x comparison is
 smaller than the excursion that has already been observed once.
+
+---
+
+## Correction, 11 Oct 2026, later the same day
+
+The entry above was written from `summarize.py` output. Reading
+`results/a40/results.jsonl` **per record** instead — every record carries
+`env.slurm_job` and `env.host`, and has since harness v2 on 5 Oct — overturns
+three statements in it.
+
+### C8 is replicated, and has been since 7 Oct
+
+The 15 records at 32K split cleanly by job:
+
+| | job 22713173, gpub019 | job 22714602, gpub047 |
+|---|---|---|
+| `off` c1 | 14.90 | 14.83 |
+| `ngram` k=5 c1 | 16.07 | 15.98 |
+| `dflash` k=7 c1 | 12.31 | 12.25 |
+| **n-gram speedup** | **1.0785** | **1.0776** |
+| **DFlash speedup** | **0.8262** | **0.8260** |
+
+Two independent jobs, two different physical nodes, three days apart, with
+speedup ratios agreeing to **0.08%** and **0.02%**.
+
+**C8 is therefore the best-supported claim in the register, not a single run.**
+It has been replicated for four days. The reason nobody noticed is that
+`summarize.py` keys on `(bucket, conc, rung, k)`, both jobs produce identical
+keys, and it keeps one record and prints one row — so a genuine replication was
+rendered as a single measurement and the register copied that reading forward.
+
+### C11 is restated, not withdrawn
+
+Withdrawing the bound was an overcorrection. The right statement separates two
+quantities that had been conflated:
+
+| quantity | agreement |
+|---|---|
+| **speedup ratios**, across two nodes | **0.08%** |
+| absolute throughput, between those two nodes | 0.47% |
+| absolute throughput, against a third node (gpub073, job 22757472) | 8.8% low |
+
+**Ratios are stable to a tenth of a percent across nodes.** Absolute throughput
+is stable between two nodes and not against a third. Since every speedup in this
+project is a within-job ratio, the stable quantity is the one we report.
+
+On gpub073 the ratio moved too — interpolating its n-gram k=2 to k=7 curve to
+k=5 gives about 1.16 against 1.078 elsewhere. So that node was slower at plain
+decoding **and** speculation helped more on it, which is the direction a
+bandwidth-limited node produces, since speculation trades memory-bound decode
+steps for a compute-bound verification pass. Consistent with the R model;
+**not established** on one job with no visibility into co-tenancy.
+
+Both earlier explanations for gpub073 are refuted from the logs: the `off` arm
+was allocated 173,056 tokens in all three jobs, identical, and there are zero
+preempt or recompute lines in any of them.
+
+### C15 is demoted
+
+1.14x against 1.18x is a 4% claim drawn from two different jobs, and its
+long-context half is job 22757472 on gpub073 — the one node with a known
+anomaly, in the direction that would inflate exactly this number. Demote to
+**"n-gram's speedup does not degrade with context"**, which both measurements
+support comfortably, and do not claim the improvement.
+
+n-gram's 32K k coefficient is unresolved for the same reason, compounded by
+being non-monotonic within its own job.
+
+### Revised rule, replacing the 11 Oct note on rule 1
+
+The order of operations given this morning — explain the excursion, fix the
+config, then buy repeats — was built on the belief that the headline rested on
+one run. It does not. Revised:
+
+1. **Report ratios, never absolute throughput.** Two orders of magnitude
+   difference in stability.
+2. **Never compare values across `slurm_job` unless both are ratios** and the
+   difference is well clear of a few percent.
+3. **Split by `env.slurm_job` before analysing.** `summarize.py` should group by
+   job, or at minimum warn on duplicate keys rather than silently keeping one.
+   This is the one software fix this episode demands.
+4. Repeats remain desirable for a formal interval, but they are no longer
+   blocking: C8 has two independent realizations and they agree to 0.1%.
+
+### What this episode cost, and what it teaches
+
+No GPU hours, and three wrong write-ups in one day — two versions of
+`notes/2026-10-11-noise-floor.md` and the status entry above. Every one argued
+from `summarize.py`'s collapsed table while the per-record data sat in the same
+directory with host and job id in it.
+
+The dead-ends table in `LOG.md` says the recurring failure here is trusting a
+proxy instead of testing the thing. A derived summary is a proxy for the data,
+and it is a more seductive one than a file listing or a traceback, because it
+looks like the measurement rather than like a clue.
