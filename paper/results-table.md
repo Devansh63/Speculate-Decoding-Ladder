@@ -157,10 +157,24 @@ Write-up in `notes/2026-10-11-hardware-transfer.md`.
 | 32K | DFlash | 0.76 | 0.78 | 0.81 | — | **0.83** | — | 22714602 |
 | 32K | n-gram | 1.04 | 1.13 | — | 1.08 | 1.18 ⚠ | — | 22757472 / 22713173 |
 
-**Optimal k rises with context and shrinks with load.** DFlash improves
+**Optimal k rises with context. The load axis is unmeasured.** DFlash improves
 monotonically in k at every bucket, with no turn by k=7; the only place k=15
-loses to k=7 is 2K under unbounded batching. The two axes act in opposite
-directions, which corrects an earlier claim that they behaved alike.
+loses to k=7 is 2K under unbounded batching. That single point is the entire
+evidence for the load axis — and it comes from job 22569403, the run
+disqualified on this page two sections above as measuring the batching decision
+rather than the drafter. **There is no valid load-varying k data at any
+bucket.** So the picture is one measured axis and one unmeasured one, not two
+axes acting in opposite directions. Corrected 11 Oct 2026; see
+`paper/claims.md`, C6.
+
+Two provenance defects in the table above. The 2K and 32K n-gram k = 1, 2 rows
+cite jobs 22757472 and 22757473, whose records are **not in this repository** —
+they were written to a separate output directory (`results/a40_ngramk`) that
+was never pushed, so those cells survive only as numbers in prose and cannot be
+re-derived from `results/*/results.jsonl`. And `LOG.md`'s recorded submission
+commands disagree with the records for the same jobs: it logs `LIMIT=25` for
+22737716/22737717 where the records carry `limit 50`, and `KLIST="1 2 7 15"`
+for 22714602 where the records hold k = 1, 2, 4, 7 and no k=15.
 
 ⚠ The 32K n-gram k = 1, 2, 7 values come from job 22757472 on **gpub073**, the
 one anomalous node. k=5 (1.08) comes from gpub019 and gpub047. Do not read the
@@ -268,6 +282,10 @@ different memory regime. Recorded as a pre-registered confound in `claims.md`.
   rung.
 - **No k above 7 at batch 1** anywhere. Speedup is still rising at k=7 in
   every bucket, so the optimum is unbracketed from above.
+- **No controlled k sweep at any load above 1.** Every k sweep in this table
+  ran at concurrency 1. The one load-varying k observation, k=15 against k=7 at
+  2K, comes from the disqualified unbounded run 22569403, so optimal k's
+  behaviour with load is unmeasured — not merely unconfirmed.
 - **No prefix-caching-off control.**
 - **No quality evaluation.** Token ids are stored for every run; nothing has
   been scored against LongBench-v2 answers yet.

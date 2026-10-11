@@ -381,7 +381,13 @@ measured **0.76x** — the worst cell in the sweep. We had fitted
 shrinks. `notes/2026-10-07-k-sweep-refutation.md`.
 
 **Also retracted:** "context does to k what load does to k". Optimal k
-**rises** with context and **shrinks** with load.
+**rises** with context.
+
+> **Corrected 11 Oct 2026.** This entry previously ended "and **shrinks** with
+> load". The load half has no valid data: its only evidence is 22569403, the
+> uncontrolled 30 Sep run recorded below as speedups-void, and no controlled k
+> sweep exists at any concurrency above 1 at any bucket. The load axis is
+> **unmeasured**, not established. See `paper/claims.md`, C6.
 
 ```bash
 sbatch --export=ALL,BUCKET=32K,LIMIT=25,CONC=1,KLIST="1 2 7 15" \
@@ -602,7 +608,7 @@ sacct -S 2026-09-30 -u $USER -X \
 | Sahil *could* write to the tree, because `group::rwx` and he is in `delta_bikd` | POSIX uses a matching **named user** ACL entry and ignores group entirely | two days of his jobs failing, hunting a log that was never created |
 | `same length` would distinguish a token flip from a different answer | Every generation hits the 256-token cap | one useless diagnostic |
 | k=1 would rescue DFlash at 32K | Fitted `R = 1 + k*c` to a single point by assuming the intercept. The real intercept is 1.662 | one wrong prediction, caught by the sweep that tested it |
-| Optimal k shrinks with context, as it does with load | It **rises** with context | one retracted claim |
+| Optimal k shrinks with context, as it does with load | It **rises** with context. The load half was never measured in a valid cell — 22569403 is void | one retracted claim, one unmeasured claim |
 | `requirements/build.txt` holds the build dependencies | `requirements/build` is a directory | one failed build start |
 | Per-request timing would give us a paired bootstrap | `timing` carries only `arrival_time`; no per-request draft counts | one harness revision |
 | `import vllm._C` tests whether the extension loads | This build ships stable-ABI extensions with different names | a false alarm on a good log |
