@@ -233,26 +233,37 @@ def main():
         provenance_warning("C", C, "D", D)
         rng = random.Random(SEED)
         rate_cd = report("COMPARISON: C against D", C, D, ids2, basis2, rng)
-        delta = rate_ab - rate_cd
-        lo = hi = float("nan")
-        if basis == basis2:
-            lo, hi = boot_diff(A, B, C, D, ids2, basis, random.Random(SEED))
-            print()
-            print(f"  DIFFERENCE  control {rate_ab:.1f}%  minus  comparison "
-                  f"{rate_cd:.1f}%  =  {delta:+.1f} points")
-            print(f"              95% CI [{100*lo:+.1f}, {100*hi:+.1f}] points, "
-                  f"paired on prompt ids")
-            print("              interval excludes zero: the two rates differ"
-                  if (lo > 0 or hi < 0) else
-                  "              interval spans zero: indistinguishable at this n")
-        else:
-            print()
-            print(f"  DIFFERENCE  control {rate_ab:.1f}%  minus  comparison "
-                  f"{rate_cd:.1f}%  =  {delta:+.1f} points")
-            print("              no interval: the two pairs do not share a "
-                  "comparison basis")
+        # The difference needs a basis both pairs share. Primary rates above use
+        # token_ids where available, but a v1 file has only sha1, so the shared
+        # basis is usually sha1 -- and every record carries sha1, in both
+        # harness revisions. Without this the difference prints no interval,
+        # which is the one number the control exists to produce.
+        basis_diff = ("token_ids"
+                      if basis == basis2 == "token_ids" else "sha1")
+        ids_common = [i for i in ids2 if all(i in d for d in (A, B, C, D))]
+        ra = rate_of(A, B, ids_common, basis_diff)
+        rc = rate_of(C, D, ids_common, basis_diff)
+        delta = ra - rc
+        lo, hi = boot_diff(A, B, C, D, ids_common, basis_diff, random.Random(SEED))
+        print()
+        print(f"  difference on the shared basis [{basis_diff}], "
+              f"{len(ids_common)} prompts common to all four files:")
+        print(f"  DIFFERENCE  control {100*ra:.1f}%  minus  comparison "
+              f"{100*rc:.1f}%  =  {100*delta:+.1f} points")
+        print(f"              95% CI [{100*lo:+.1f}, {100*hi:+.1f}] points, "
+              f"paired on prompt ids")
+        print("              interval excludes zero: the two rates differ"
+              if (lo > 0 or hi < 0) else
+              "              interval spans zero: indistinguishable at this n")
+        if basis_diff != basis or basis_diff != basis2:
+            print(f"              (the rates printed above are on "
+                  f"{basis} and {basis2}; this difference is on {basis_diff} "
+                  f"so both pairs are measured the same way)")
         summary.update({"c": args.c, "d": args.d, "comparison_pct": round(rate_cd, 3),
-                        "diff_points": round(delta, 3),
+                        "diff_basis": basis_diff,
+                        "diff_control_pct": round(100 * ra, 3),
+                        "diff_comparison_pct": round(100 * rc, 3),
+                        "diff_points": round(100 * delta, 3),
                         "diff_ci_points": [round(100 * lo, 3), round(100 * hi, 3)]})
 
     if args.json_out:
