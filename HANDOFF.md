@@ -357,15 +357,24 @@ sample and does not count as a test.
 **Fails** if median absolute relative error exceeds 10%, or 32K does not
 invert.
 
-**The capacity confound originally recorded here is WITHDRAWN** (register, 11
-Oct). It said the A100's 40 GB against the A40's 48 GB might put a 32K cell in
-a different memory regime; a concurrency-1 32K cell needs about 24 GB, so it
-does not. **Judge the prediction primarily on 8K**, on a different basis: the
-1.054 machine factor was fitted at 2K and `R`'s composition changes with
-context, so carrying it to 32K is a longer extrapolation than carrying it to
-8K. A 32K-specific miss is therefore **informative, not excusable** — it would
-mean the machine factor is context-dependent, which weakens C17 rather than
-merely C4.
+**The capacity confound originally recorded here is WITHDRAWN for the
+concurrency-1 prediction** (register, 11 Oct). It said the A100's 40 GB against
+the A40's 48 GB might put a 32K cell in a different memory regime; a
+concurrency-1 32K cell needs about 24 GB, so it does not. **Judge the
+prediction primarily on 8K**, on a different basis: the 1.054 machine factor
+was fitted at 2K and `R`'s composition changes with context, so carrying it to
+32K is a longer extrapolation than carrying it to 8K. A 32K-specific miss is
+therefore **informative, not excusable** — it would mean the machine factor is
+context-dependent, which weakens C17 rather than merely C4.
+
+**It is live above concurrency 2 at 32K, and that constrains the load axis.**
+33,792 tokens at 144 KiB each is 4.86 GB of KV per sequence, so four 32K
+sequences need 19.4 GB against a KV budget of about 18 GB (36.9 GB usable at
+`gpu_memory_utilization=0.90`, less 16.4 GB of weights and the 1.9 GB head) —
+about 3.9 fit. `env/gpu-support.md`'s own table rounds that to 4, so the top row
+of a `1 2 4` grid is marginal and would be mislabelled if vLLM scheduled fewer.
+**The A100 32K grid is `1 2`; the A100 load axis belongs at 8K**, where twelve
+sequences need 14.6 GB and fit.
 
 **The test** is `code/submit_a100_predict.sh`, one command, ~1.5 GPU-hours.
 This is the highest-value GPU time available to the project.
@@ -497,6 +506,15 @@ BUCKET=2K,LIMIT=50,CONC=1 phase0.sh
 Concurrency grids must shrink as context grows — 2K: `1 8 32`; 8K: `1 4 12`;
 32K: `1 2 4`. vLLM accepts an impossible `max_num_seqs` and quietly schedules
 fewer, which mislabels the row rather than failing.
+
+**On A100 the 32K ceiling is lower: use `1 2`, not `1 2 4`.** A 32K A100 node
+has about 131,000 tokens of KV and one 32K cell is 33,792 tokens, so about
+**3.9** fit. `env/gpu-support.md`'s table rounds that to 4; the arithmetic here
+says the fourth is marginal. Because that difference decides whether the top
+row of a grid is real, use `1 2` — and if a 32K `c=4` cell is ever wanted, read
+the achieved concurrency out of the log (`grep -i "maximum concurrency"`)
+rather than assuming it. The A100 load axis belongs at 8K, where the same KV
+budget holds twelve sequences comfortably.
 
 ### 7.5 Budget
 

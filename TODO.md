@@ -64,8 +64,11 @@ This vLLM build does not populate per-request metrics on the V1 engine, so the
 **paired bootstrap over prompts is not possible**. Harness v2's timing code is
 inert.
 
-The remaining path is **repeated runs**, estimating run-to-run variance.
-Coarser, but the only option short of patching vLLM.
+The remaining path is **disjoint prompt subsets**, not repeated runs. A repeat
+on the same prompts re-measures node and engine noise, which is already known
+to 0.1% on ratios; subsets measure prompt-sampling variance, which nothing has
+bounded. Same wall-clock, and the term that is actually unmeasured.
+`notes/2026-10-11-a100-decision-tree.md` section 3.
 
 - [x] ~~Sahil's `SEED=5678` 2K repeat~~ **Struck 11 Oct:** `SEED` only reaches
       `SamplingParams`, inert under greedy, and the harness always reads the first
@@ -73,9 +76,11 @@ Coarser, but the only option short of patching vLLM.
       disjoint prompt subsets, `notes/2026-10-11-a100-decision-tree.md` section 3.
       Was listed as foundational
       rather than optional.
-- [ ] **Repeat the 32K cell at least twice.** The headline claim lives there
-      and currently rests on 25 prompts in a single run. Highest priority after
-      the k experiment.
+- [x] ~~**Repeat the 32K cell at least twice.**~~ **Superseded 11 Oct:** the
+      32K bucket's sampling variance is what is unmeasured, and repeats sharing
+      one prompt set cannot measure it. Subsets 1–4 of the subset design cover
+      the same ground for the same wall-clock and do. See
+      `notes/2026-10-11-a100-decision-tree.md` section 3.
 
 ---
 

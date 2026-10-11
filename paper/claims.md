@@ -824,3 +824,105 @@ not a new sample. It re-measures the same prompts, and any two such runs
 differ only by engine nondeterminism. The `SEED=5678` item in `TODO.md` is
 struck; prompt-sample variance comes from disjoint subsets
 (`notes/2026-10-11-a100-decision-tree.md`, section 3).
+## Merge, 11 Oct 2026 (later) — plan of record, and four corrections
+
+Two things landed after the second review: the spec-sheet check above, and
+`notes/2026-10-11-a100-decision-tree.md` — the plan of record to 20 Oct,
+committed before any record from jobs 22802261 and 22802262 was read. This
+entry records the merge. Nothing here edits an earlier entry.
+
+**The plan of record is that note, not a conversation.** Its branches (A, B
+with B-tau / B-R / B-sep, C, and a grey zone), its per-cell scoring rules and
+its reading of the sign inside B-R are binding. The proposal's primary metric
+is now framed as each rung's **break-even**, predicted to be hardware-invariant
+in the *ratio* of the two speedups, with a 16K bucket built to locate DFlash's
+break-even on A40 between 8K and 32K.
+
+Landed alongside it: the paired-subset tooling (`code/make_subsets.py`,
+`code/analyze.py`), and a summarizer that groups by `env.slurm_job` by default
+rather than collapsing duplicates. The entry immediately above records the seed
+observation. Where those commits and this entry overlap, the code is the
+implementation and this is the register's copy of the reconciliation.
+
+### The interval instrument is the prompt dimension, not repeats
+
+Rule 1 has been unmet since 7 Oct on the belief that intervals needed repeated
+whole runs. They do not, and repeats are the weaker instrument: three
+realizations on one prompt set bound node and engine noise — already 0.03–0.08%
+on ratios — while leaving prompt-sampling variance untouched, which is the
+dominant unmeasured term.
+
+The prompt dimension was simply unused — `run_benchmark.py` reads the **first
+`LIMIT` lines** of the bucket file and, as the entry above records, the seed is
+never consumed — so the sample was fixed by construction. The design is five
+disjoint subsets, and the implementation pairs them **by document across all
+three buckets** (`code/make_subsets.py`): a subset directory holds all three
+bucket files carrying the same documents truncated to each target length. That
+is stronger than slicing each bucket independently, and it removes a confound
+recorded in the plan note — the existing 2K, 8K and 32K cells share documents,
+with the 2K and 8K prompt lists identical in order. Twelve jobs, ~10 A40-hours,
+and the spread across subsets is the interval.
+
+What it moves: **C8, C1, C2, C5 and C14 from measured to supported** under
+rule 1, if the intervals hold the ordering. C12 and C13 need k sweeps per
+subset and stay measured. It does **not** address C10's strong form, which
+needs two runs of the *same* prompts in the same configuration — a different
+question with its own script, `code/c10_control.sh`.
+
+This supersedes the repeated-runs language in the 7 Oct and 11 Oct entries
+above; that text stays as the record of what was believed.
+
+### The capacity confound: withdrawn at concurrency 1, live above 2 at 32K
+
+Recorded in `HANDOFF.md`, `paper/results-table.md` and `env/gpu-support.md`, and
+registered here because it changes a **plan**, not only a caveat. 33,792 tokens
+at 144 KiB is 4.86 GB of KV per 32K sequence, so four sequences need 19.4 GB
+against a KV budget of about 18 GB. Four does not fit, and vLLM would schedule
+three while the row said four. **The A100 32K grid is `1 2`; the A100 load axis
+belongs at 8K**, where the same budget holds twelve.
+
+### H200: a bandwidth extrapolation, and a range rather than a point
+
+Bandwidth is the axis that exists (0.70, 1.56, 4.8 TB/s; the ridge points are
+201 to 215 and cannot discriminate). H200 is **3.1x beyond the A100** on that
+axis, and C18 shows plain decode tracks bandwidth to about 1%, so the direction
+is predictable before the run: H200 is faster, and 2K already showed that
+speculation pays *less* on the faster machine.
+
+The fit is `t_step = bytes / bandwidth + overhead` per rung, and **two
+unknowns from two machines has zero residual by construction**, so a point fit
+would extrapolate with no uncertainty and a miss would be uninterpretable.
+Therefore H200 waits for the subset intervals: each subset contributes one A40
+and one A100 value, and the spread of fitted parameters propagates to a
+predicted **range**. Freeze the range with the rule that a range wide enough to
+contain anything is not a prediction, and report its width. Two queue-bound
+steps start now regardless of the fit — the `phase0.sh` capability-guard
+variant admitting `90`, and an H200 diagnostic modelled on `diag_a100.sh`,
+because the multiarch venv contains sm_90 kernels but has never executed on an
+H200, and "a listing is not proof of execution" is already in the dead-ends
+table.
+
+### Premise check: triton parity
+
+C16 and C17 rest on "same binary, only the architectures differ", which was
+threatened by the multiarch install pulling `tokenspeed-triton-3.8.10` and
+possibly displacing `triton 3.7.1`. **It did not.** Both venvs carry triton
+`3.7.1`, tokenspeed-triton `3.8.10.post20260920`, torch `2.13.0+cu130` and the
+same vLLM commit; the compiled architecture set is the only difference. The
+premise stands. Recorded in `env/gpu-support.md`; the day it spent as an open
+item after being answered in conversation is a `RULES.md` section 8 violation,
+now a row in `LOG.md`'s dead-ends table.
+
+### The window
+
+Measurement stops at the end of **17 Oct**; the last three days before the
+20 Oct review are reserved for the write-up. Anything unmeasured by then is out
+of scope. That is why the plan orders the queue by queue-wait rather than by
+cost, and why the H200 block is the first to drop if the hour request is slow.
+
+### Housekeeping
+
+`paper/claims-corrections-2026-10-11b.md` was folded into this register and
+then deleted, so the sentence in the fold-in entry above that says it "stays as
+the record of what arrived when" is stale. Its content is all here, and nothing
+else references it.

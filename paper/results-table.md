@@ -278,12 +278,19 @@ Without it the script falls back to a single-architecture build and the job
 dies at kernel launch after reserving a node, as job 22685764 did.
 
 The A100-SXM4-40GB has **40 GB against the A40's 48**, which was recorded as a
-pre-registered confound at 32K. **That confound is withdrawn** (register, 11
-Oct): a concurrency-1 32K cell needs about 24 GB — 16.4 weights + 4.9 target KV
-+ 1.9 drafter + 0.7 drafter KV — so there is no capacity pressure at the
-concurrency the prediction is made at. 8K is still weighted higher, on a
-different basis: the 1.054 machine factor was fitted at 2K, and `R`'s
-composition changes with context.
+pre-registered confound at 32K. **It is withdrawn for the concurrency-1
+prediction** (register, 11 Oct): a concurrency-1 32K cell needs about 24 GB —
+16.4 weights + 4.9 target KV + 1.9 drafter + 0.7 drafter KV — so there is no
+capacity pressure at the concurrency the prediction is made at. 8K is still
+weighted higher, on a different basis: the 1.054 machine factor was fitted at
+2K, and `R`'s composition changes with context.
+
+**The confound is live above concurrency 2 at 32K**, and that is a real
+constraint on the load axis rather than a caveat: four 32K sequences need
+19.4 GB of KV against a budget of ~18 GB, so about 3.9 fit and the fourth is
+marginal (`env/gpu-support.md` rounds it to 4, which is the whole tension). The
+A100 32K grid is `1 2`, and the A100 load axis goes at 8K. See
+`env/gpu-support.md`.
 
 ---
 
