@@ -86,3 +86,53 @@ cell would close the gap properly.
 The 32K n-gram row at concurrency 4 (0.99x) is within about one noise width of
 1.0 and should be reported as indistinguishable from no speedup, not as below
 it.
+
+---
+
+## Status as of 11 Oct 2026
+
+n-gram swept over k at 2K and 32K for the first time (jobs 22757473 and
+22757472), and the A100 blocker cleared (job 22754950).
+
+| ID | Status now | Evidence |
+|---|---|---|
+| C4 | **UNBLOCKED, not yet started.** Job 22754950 passed all four diagnostic steps on A100 under the rebuilt multi-architecture venv, including the compiled CUDA-graph path that originally failed. There is now a second platform. No measurement cells have been run on it, so the claim itself is still untested — but it is no longer at risk of being impossible | `LOG.md` 8 Oct, `env/gpu-support.md` |
+| C6 | **Direction settled.** n-gram's speedup is also monotonically rising in k at both buckets (2K: 1.06x, 1.09x, 1.14x; 32K: 1.04x, 1.13x, 1.18x), with no turn by k=7. Optimal k rises with context and shrinks with load, for both rungs | `notes/2026-10-11-ngram-drafter-cost.md` |
+| C9 | **Measured for both rungs, not just DFlash.** Fitting `R(k) = (1 + R_draft) + c*k`: DFlash R_draft 0.296 / 0.434 / 0.662 at 2K / 8K / 32K; n-gram 0.071 at 2K and 0.139 at 32K. The claim's qualifier "for model-based drafters" is **wrong** — see C12 | `notes/2026-10-08-drafter-cost-scaling.md`, `notes/2026-10-11-ngram-drafter-cost.md` |
+| C11 | **AMENDED — bound withdrawn.** A third 32K baseline realization came in at 13.5 tok/s against the 14.9 and 14.8 recorded above, 8.8% low. Two of three agree to 0.67%; one does not. An occasional excursion, not a wide distribution. No 32K interval may be computed until the excursion is explained | `notes/2026-10-11-noise-floor.md` |
+
+### New claims
+
+| ID | Claim | Status | Falsifier |
+|---|---|---|---|
+| C12 | Every drafter pays a context tax, including one that runs no model. Prompt lookup must scan the prompt, so its cost grows with context too — at a similar *relative* rate to a trained head, and a factor of four to five smaller in absolute terms | **Measured at two buckets.** n-gram R_draft 0.071 (2K) to 0.139 (32K), a 1.96x growth against DFlash's 2.24x. Absolute gap 0.225 to 0.523 | n-gram's R_draft flat across buckets, which would restore the "free drafter" account |
+| C13 | The inversion is driven by the absolute drafting-cost gap, not by a difference in how the two drafters scale | **Measured, two buckets.** Both costs roughly double across the context range; the gap doubles with them because DFlash starts 4.2x higher | The two costs scaling at materially different rates, making the mechanism a scaling difference rather than a level difference |
+| C14 | n-gram's acceptance is invariant to context length | **Measured.** tau_cond at k=1 is 1.670 at both 2K and 32K; first-position acceptance 0.670 at both; D = -0.000, -0.008, -0.007 at k = 1, 2, 7 | Any bucket where n-gram's acceptance profile shifts outside noise |
+| C15 | n-gram is *faster* at long context than at short, because coverage rises while acceptance holds flat | **Measured at k=7, single runs.** 1.14x at 2K against 1.18x at 32K; coverage 0.121 to 0.195 | The 32K advantage disappearing under repeats, which given C11 is entirely possible |
+
+### Predictions that succeeded
+
+First entry in this column. Added so the register is not only a list of errors.
+
+| Date | Prediction | Outcome | Why it counts |
+|---|---|---|---|
+| 11 Oct | n-gram's R at 2K, k=5, should be 1.086, from the fit `R(k) = 1.071 + 0.0030k` over k = 1, 2, 7 | **Confirmed: 1.083**, off by 0.3% | k=5 was not in the fit, and the measurement comes from job 22598608, ten days earlier. Out of sample in both k and job. The same test at 32K misses by 10%, which is the excursion in C11, not the model |
+
+### Note on rule 1, added 11 Oct 2026
+
+Rule 1 is now **binding and unmet at 32K**, and the reason has changed. It is no
+longer that intervals are merely absent; it is that the sample we would compute
+them from is known to contain an excursion. An interval over a contaminated
+sample is worse than an honest "single run", because it presents as rigour.
+
+Order of operations for the 32K bucket, which is where every headline lives:
+
+1. Explain the excursion. Free, from logs on disk. The leading candidate is KV
+   cache allocation variance driving preemption, which predicts exactly the
+   on/off pattern observed.
+2. Fix the configuration if that is the cause, rather than averaging over it.
+3. Then repeat the cell, each run to its own output directory, and compute
+   intervals.
+
+C15 is the claim most exposed to this, since a 1.14x against 1.18x comparison is
+smaller than the excursion that has already been observed once.
