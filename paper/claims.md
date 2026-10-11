@@ -231,3 +231,81 @@ The dead-ends table in `LOG.md` says the recurring failure here is trusting a
 proxy instead of testing the thing. A derived summary is a proxy for the data,
 and it is a more seductive one than a file listing or a traceback, because it
 looks like the measurement rather than like a clue.
+
+---
+
+## Second platform, 11 Oct 2026
+
+Jobs 22757102 (A40 gpub067), 22757105 (A40 gpub085) and **22757104 (A100-SXM4-40GB
+gpua045)**, run by ssashi on 8 Oct as the quickstart smoke test: 2K, concurrency
+1, `LIMIT=5`, seed 1234, `vllm_env_multiarch`. **The project's first A100
+measurements.** Write-up in `notes/2026-10-11-hardware-transfer.md`.
+
+| | A40 | A100 | change |
+|---|---|---|---|
+| DFlash tau_cond | 2.594 | 2.572 | -0.8% |
+| n-gram tau_cond | 2.533 | 2.525 | -0.3% |
+| DFlash R | 1.358 | 1.433 | **+5.5%** |
+| n-gram R | 1.075 | 1.132 | **+5.3%** |
+| DFlash speedup k=7 | 1.89x | 1.79x | -5.3% |
+| n-gram speedup k=5 | 1.14x | 1.06x | -7.0% |
+| `off` throughput | 33.0 | 72.8 | A100 2.21x faster |
+
+### New claims
+
+| ID | Claim | Status | Falsifier |
+|---|---|---|---|
+| C16 | `tau` is a property of the drafter and the text, not of the machine, and transfers across hardware unchanged | **Measured, one pair.** tau_cond agrees to 0.8% (DFlash) and 0.3% (n-gram) between A40 and A100 at 2K | tau differing by more than a couple of percent on a third platform, or at a longer context |
+| C17 | `R` is a property of the machine, and scales by a single factor independent of the rung | **Measured, one pair.** R rises 5.5% (DFlash) and 5.3% (n-gram) on A100 — the same factor for rungs that differ 4x in drafting cost and 7x in coverage | The factor differing materially between rungs, which would mean the machine term is not separable from the drafter term |
+
+C4's status is unchanged — **unblocked, untested** — because a prediction has
+not yet been measured. The ingredients now exist.
+
+### Frozen prediction, 11 Oct 2026
+
+Committed under rule 4, **before any A100 cell at full n has been run.** The
+only A100 data in existence when this was written is job 22757104 at 2K,
+`LIMIT=5`.
+
+Method: take the A40 `R` values at concurrency 1 from the n=50 grid, multiply by
+the measured machine factor **1.054** (mean of 1.0552 and 1.0530), and divide the
+A40 `tau_eff` by the result.
+
+| cell | A40 R | predicted A100 R | A40 tau_eff | **predicted A100 speedup** |
+|---|---|---|---|---|
+| 8K, DFlash k=7 | 1.544 | 1.627 | 1.947 | **1.20x** |
+| 8K, n-gram k=5 | 1.120 | 1.181 | 1.284 | **1.09x** |
+| 32K, DFlash k=7 | 1.766 | 1.861 | 1.459 | **0.78x** |
+| 32K, n-gram k=5 | 1.290 | 1.360 | 1.390 | **1.02x** |
+
+**2K is in sample** — the factor was derived there — so it is not a test. Only
+8K and 32K count.
+
+**Headline consequence: the inversion is predicted to survive on A100 and widen
+slightly**, 0.78x against 1.02x, compared with 0.83x against 1.08x on A40.
+
+**Falsification criterion**, fixed now rather than after the fact:
+
+- the model **passes** if every predicted speedup is within 5% relative of
+  measured, and the DFlash-below-1.0 / n-gram-above-1.0 ordering holds at 32K;
+- it **fails** if the median absolute relative error across the four cells
+  exceeds 10%, or if the 32K ordering does not reproduce.
+
+**Pre-registered confound.** The A100-SXM4-40GB has 40 GB of memory against the
+A40's 48. At 32K the concurrency ceiling is therefore lower and a long-context
+cell may be in a different memory regime entirely. **A large miss at 32K may be
+a capacity artifact rather than a failure of the cost model**, so the prediction
+should be judged primarily on 8K. Recording this before the measurement so it
+cannot be used as an excuse afterwards.
+
+**Test:** two cells at n=50 on A100, 8K and 32K, concurrency 1, with
+`LADDER_VENV` set to the multiarch venv. About 1.5 GPU-hours on Sahil's
+allocation, which is almost untouched.
+
+### What a failure would teach
+
+If the single factor misses, the question becomes what else `R` depends on, in
+this order of testability: context length (a miss growing with bucket would
+point at `R_draft`, a forward pass over the prefix); coverage (a factor that
+differs between rungs at long context but not short would mean the machine and
+drafter terms are not separable); and memory capacity (the confound above).
