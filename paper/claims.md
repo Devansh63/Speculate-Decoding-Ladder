@@ -309,3 +309,177 @@ this order of testability: context length (a miss growing with bucket would
 point at `R_draft`, a forward pass over the prefix); coverage (a factor that
 differs between rungs at long context but not short would mean the machine and
 drafter terms are not separable); and memory capacity (the confound above).
+
+---
+
+## External review, 11 Oct 2026 — four corrections and what each caught
+
+An external review of this register on 11 Oct 2026 found four errors, each in a
+statement this file was making as established. They are recorded here on the
+same principle as the "Predictions that failed" table: a register that keeps
+only its confirmations is not evidence of anything. Every dated entry above is
+left unchanged. Where an entry above and a correction below disagree, **the
+correction governs**.
+
+| # | correction | what it caught |
+|---|---|---|
+| 1 | C10 restated in the narrow form | a control that varies two things, compared against a treatment that varies one |
+| 2 | C15's figures corrected | a demoted claim whose *replacement* wording was also unsupported |
+| 3 | Frozen prediction's criterion clarified | a pass/fail gap: no mixed outcome was specified before the measurement it governs |
+| 4 | C6 split; the k-versus-load axis is unmeasured | a claim supported only by a run this repository disqualifies |
+
+Items 1, 2 and 4 also appear in `LOG.md` and `paper/results-table.md`, which are
+live records rather than append-only registers, and are corrected in place
+there. `HANDOFF.md` section 2.5 states item 4 as well and has deliberately
+**not** been changed — flagged here so the discrepancy is not rediscovered
+from scratch.
+
+### 1. C10 — the strong form is not supported; restated in the narrow form
+
+Claimed on 5 Oct: "Speculative decoding perturbs output less than the serving
+engine perturbs itself across batch sizes", from comparing 12.7% (baseline
+against itself) with 19.0% (speculative against baseline). **That comparison is
+confounded, and the strong form is not established by it.**
+
+`check_lossless.py` compares the `off` arm against the `off` arm **at
+different concurrency** — its own output reads `off c=1 vs off c=8`, and it
+takes every pair by `combinations(sorted(loaded), 2)` over the `off` arms. The
+treatment compares a speculative arm against the baseline **at matching
+concurrency** (its other output line). So:
+
+| arm | what differs from its comparator |
+|---|---|
+| control, `off` vs `off` | engine non-determinism **plus** a change of batch size |
+| treatment, spec vs `off` | engine non-determinism **plus** speculation, batch size fixed |
+
+The control varies two things and the treatment varies one. The two rates are
+therefore not comparable, and "speculation perturbs output less than the engine
+perturbs itself" cannot be read off them.
+
+**What is supported, and all that should be claimed:** changing *concurrency*
+perturbs greedy output more than adding *speculation* at fixed concurrency
+does. One variable is swapped, on the same prompts, seed and workload. This
+says nothing about how much speculation perturbs output relative to a
+**fixed-config** repeat, because no such repeat exists.
+
+**The missing control** is two `off` runs at the same bucket, same n, same
+concurrency, same seed, written to **separate output directories** so that both
+sets of per-request token ids survive. On A40 at 2K n=50 that is two
+submissions at ≈0.32 GPU-hours billed (floor: the `off` arm of job 22598608
+took 393 s of generation, plus the ≈172 s per-arm engine init measured in job
+22757104's log). Until it exists, C10 stays in the narrow form.
+
+**A second defect in the same comparison, found while checking the first.**
+The control's `off` per-request files are not from one job. There is exactly
+one file per cell key — `perreq_off_2K_k0_n50_s1234_c1.json` — but two jobs
+measured that key (22598608 on 1 Oct, 22737716 on 7 Oct), the filenames encode
+no run, and the files themselves carry no job identifier (their keys are `id`,
+`prompt_tokens`, `gen_tokens`, `sha1`, `finish_reason`, `token_ids`, `timing`).
+By the convention in `HANDOFF.md` section 8.5 the later job's file overwrote
+the earlier one, so the control's `c=1`-against-`c=8` pair very likely compares
+arms from **two different jobs**, adding run-to-run and node variance on top of
+the batch-size change already noted. *[Inference from the file inventory plus
+the record set: the overwrite cannot be proved from inside the surviving file.]*
+
+The replications this file leans on elsewhere have the same problem for their
+**per-request token ids**: 32K 22713173/22714602, 2K 22598608/22737716 and 8K
+22685911/22737717 each wrote twice into one output directory, and one file per
+cell key survives. Their **aggregate** records do carry `env.slurm_job` and
+`env.host` in `results.jsonl` — which is why the speedup-ratio replication
+stands — but the token ids do not. The 2K A40 smoke pair (22757102 / 22757105)
+is worse off than overwritten: **no per-request file for it exists in this
+repository at all** (no `_n5_` file under `results/a40/`).
+
+### 2. C15 — corrected wording, and the numbers
+
+The demoted wording recorded above — "n-gram's speedup does not degrade with
+context" — is **wrong**, and the 4%-improvement claim it was demoted *from* was
+wrong for a different reason. At matched k=5, split per record on
+`env.slurm_job`, with two realizations on each side:
+
+| bucket | n | job | node | `off` tok/s | n-gram k=5 tok/s | speedup |
+|---|---|---|---|---|---|---|
+| 2K | 50 | 22598608 | gpub036 | 32.563 | 37.628 | **1.1556** |
+| 2K | 50 | 22737716 | gpub014 | 32.554 | 37.581 | **1.1544** |
+| 32K | 25 | 22713173 | gpub019 | 14.904 | 16.070 | **1.0782** |
+| 32K | 25 | 22714602 | gpub047 | 14.832 | 15.981 | **1.0775** |
+
+n-gram **degrades by 6.7%** from 2K to 32K at matched k=5 (1.1556 against
+1.0782), and the decline is solid in the sense that the two realizations on
+each side agree to ≈0.1%. It is still far less than DFlash, which falls 55.7%
+at matched k=7 (1.8640 to 0.8260), and it is nowhere near the 4% *improvement*
+claimed before.
+
+**Corrected statement:** n-gram's speedup degrades mildly with context, far
+less than DFlash's. Its `tau_cond` is context-invariant (1.670 at both 2K and
+32K at k=1, C14) and its coverage rises (0.132 to 0.212), which is why a
+drafter with a small fixed overhead degrades so much less than one with a large
+fixed overhead does.
+
+**Provenance, and a caveat found while checking.** The 2K second realization is
+job 22737716, submitted from `kprobe_32k.sh` with `BUCKET=2K, KLIST="1 2 7"`;
+that script's pre-loop is `run off 0` followed by `run ngram 5` before the
+`KLIST` loop (lines 120-121), which is what produces an n-gram k=5 arm at every
+bucket. Two of `LOG.md`'s recorded submission commands do **not** match the
+records, however: it logs `LIMIT=25` for 22737716 and 22737717 while both
+records carry `limit 50`, and it logs `KLIST="1 2 7 15"` for 22714602 while
+that job's records hold k = 1, 2, 4, 7 and no k=15. The records are the
+measurement; `LOG.md`'s replay commands are unreliable in at least these two
+places and are corrected in place where the load axis is concerned.
+
+### 3. Clarification of the frozen prediction's criterion, 11 Oct 2026
+
+**Amends "Frozen prediction, 11 Oct 2026" above without editing it.** That text
+was written before any A100 cell at full n existed — the only A100 data in
+existence at the time was job 22757104 at 2K, `LIMIT=5` — and it is left
+byte-for-byte intact for that reason; that is precisely what makes it a
+prediction under rule 4 rather than a retrodiction.
+
+As written the criterion has a gap: **pass** requires all four cells within 5%
+relative, while **fail** requires the *median* absolute relative error across
+the four cells to exceed 10%. One badly missed cell among four can satisfy
+neither — three near-exact cells hold the median down while the pass condition
+fails on the single miss. No mixed outcome was specified, so this entry
+specifies one, before the measurement it governs:
+
+1. **Report per cell, never as a median.** Four rows, each with predicted
+   value, measured value, and signed relative error.
+2. **8K is the primary judgement**, per the pre-registered confound (40 GB
+   against 48 GB, a lower 32K concurrency ceiling, a possibly different memory
+   regime). The 8K cells decide whether the single-factor transfer works.
+3. **The 32K ordering is a separate pass/fail** in its own right: DFlash below
+   1.0 and n-gram above 1.0. Ordering and magnitude are reported separately,
+   because a correct ordering with a 20% magnitude miss is a different finding
+   from a failed inversion.
+4. **One cell outside 5% fails the pass condition.** Whether C4 then fails
+   overall depends on the 8K cells and on whether the miss is systematic (both
+   rungs, both buckets) or confined to the capacity-limited 32K cell.
+5. **The confound is neither an excuse nor a refutation.** If only 32K misses,
+   report a magnitude miss in a regime the prediction itself flagged as at
+   risk, and say plainly that the 32K cell cannot separate capacity from
+   cost-model error.
+6. **The prediction is never revised.** The outcome goes in as a dated entry,
+   pass or fail, whatever it is.
+
+### 4. C6 — the k-versus-load axis has no valid data
+
+C6's 11 Oct status above reads "Optimal k rises with context and shrinks with
+load, for both rungs". **The second half has no valid evidence.** The only
+load-varying k observation in the project is job 22569403 (30 Sep, 2K,
+uncontrolled): k=15 at 0.78x against k=7 at 0.86x. That run is disqualified by
+this repository's own account — `paper/results-table.md`: "vLLM batched as wide
+as memory allowed, so those speedups measure the batching decision rather than
+the drafter ... not as a valid cell", and `LOG.md` records it as "speedups
+void, acceptance usable". A direction read off a disqualified run is not
+evidence.
+
+**Restated, splitting the claim in two:**
+
+- **Optimal k rises with context — measured.** DFlash monotonic at 32K over
+  k = 1, 2, 4, 7 (0.76x, 0.78x, 0.81x, 0.83x) and at 2K and 8K; n-gram
+  monotonic at 2K and 32K; no turn by k=7 anywhere.
+- **Optimal k shrinks with load — unmeasured.** There is no controlled
+  k sweep at any concurrency above 1 at any bucket. The prescriptive
+  consequence the paper wants — rung *and* draft length chosen per request —
+  therefore rests on one axis, not two, and the missing one is exactly the
+  axis a per-request controller would need.
