@@ -792,6 +792,7 @@ sacct -S 2026-09-30 -u $USER -X \
 | Sahil must grant read access to his results tree | `drwxrws---+` under `delta_bikd`, readable already | — |
 | Per-arm cost extrapolation estimates a job's runtime | Wrong by ~2x three times running | repeated bad planning |
 | The A40's ridge point is ~107, half the H200's, so it is the held-out platform on the ratio axis | The 27 Sep memo halved NVIDIA's dense bf16 figure (149.7) believing it was the sparse one. The real ridge is ~215; A40, A100 and H200 all sit at 201 to 215 | the proposal's platform rationale, one withdrawn mechanism argument, and a review built on it; caught by reading the datasheet |
+| The triton question (`tokenspeed-triton-3.8.10` displacing `triton-3.7.1`) was still open | It was answered in conversation on 11 Oct — both venvs carry the same triton, torch and vLLM commit — and simply never written down | one step for the next reader, and an open item that looked live for a day. **A question answered in conversation is not answered**: `RULES.md` section 8 routes an environment fact to `env/gpu-support.md`, and skipping that is how a resolved question stays open |
 
 **The pattern in most of these:** a conclusion drawn from a proxy — a file
 listing, a directory name, a traceback line, a group name, a module name, a
@@ -851,10 +852,13 @@ axis is assigned to it.
   from sampling noise, and a real cross-GPU numerics effect would matter.
 - **Reconcile the budget** against `sreport`; confirm or kill the 2x A100
   assumption.
-- **Triton divergence between the two venvs.** The multiarch install pulled
-  `tokenspeed-triton-3.8.10` and may have displaced `triton-3.7.1`. If so, any
-  A40-vs-A100 gap is confounded by more than the architecture list, which
-  breaks the "same binary" premise behind C16 and C17.
+- ~~**Triton divergence between the two venvs.**~~ **Resolved 11 Oct.** Both
+  venvs carry triton `3.7.1` and tokenspeed-triton `3.8.10.post20260920`, torch
+  `2.13.0+cu130` and the same vLLM commit; the compiled architecture set is the
+  only difference, so the "same binary" premise behind C16 and C17 holds. This
+  was established in conversation earlier the same day and left open here until
+  now, which is the section 8 violation recorded in the dead-ends table.
+  `env/gpu-support.md` now documents it.
 - ~~**Verify the A100 and A40 spec sheets.**~~ **Done 11 Oct (later).**
   A100 ~201 holds; A40 is ~215, not ~107; H200 ~206. Register, "Spec-sheet
   check".

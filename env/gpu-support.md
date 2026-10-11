@@ -63,6 +63,46 @@ bf16 ridge points are ~215 and ~201 FLOP/byte per NVIDIA's datasheets, and the
 H200 is ~206. This paragraph previously gave the A40 as 107, which halved the
 dense figure (corrected 11 Oct 2026; register, "Spec-sheet check").
 
+## The second venv, and the triton question (resolved 11 Oct 2026)
+
+`vllm_env_multiarch` is the second venv the H200 decision above calls for: the
+rebuild went there rather than into `~/vllm_env`, so the binary that produced
+the A40 measurements stays frozen. Both venvs are therefore expected to differ
+in exactly one thing — the architecture list compiled into vLLM's own
+extensions:
+
+| | `vllm_env` (original) | `vllm_env_multiarch` |
+|---|---|---|
+| vLLM | `0.29.1rc1.dev345+gbf13ecc2f` | same commit |
+| torch | `2.13.0+cu130` | `2.13.0+cu130` |
+| triton | `3.7.1` | `3.7.1` |
+| tokenspeed-triton | `3.8.10.post20260920` | `3.8.10.post20260920` |
+| cubins | sm_80, sm_86 | sm_80 71, sm_86 51, sm_90 82 |
+
+**The question, and the answer.** The multiarch install also pulled
+`tokenspeed-triton-3.8.10.post20260920`, and `LOG.md` carried an open item
+asking whether it had *displaced* `triton 3.7.1`. Had it, every A40-vs-A100
+comparison would be confounded by more than the architecture list and the
+"same binary, only architectures differ" premise behind C16 and C17 would be
+false. **It had not.** The two venvs carry the same triton and
+tokenspeed-triton versions, the same torch and the same vLLM commit; the
+compiled architecture set is the only difference. The premise holds.
+
+**Provenance, stated plainly.** This was established in conversation on 11 Oct
+and left standing as an open item in this file and in `LOG.md` for a day. That
+is a `RULES.md` section 8 violation by whoever resolved it — an environment
+fact belongs here — and the dead-ends table in `LOG.md` now carries the row so
+the cost of the omission is visible rather than absorbed.
+
+Re-check with, after any reinstall on either venv:
+
+```bash
+for V in ~/vllm_env /projects/bikd/dagraw2/Speculative_Ladder/vllm_env_multiarch; do
+  echo "$V"
+  "$V"/bin/python3 -c "import importlib.metadata as m; [print('  ', p, m.version(p)) for p in ('vllm','torch','triton','tokenspeed-triton')]"
+done
+```
+
 ## Guard now in both job scripts
 
 ```bash
