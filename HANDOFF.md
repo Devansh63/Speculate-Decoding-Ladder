@@ -181,7 +181,7 @@ Read in this order. Everything here is current.
 | 12 | `notes/2026-10-01-a40-2k-concurrency-sweep.md` | the load axis, and the founding result |
 | 13 | `notes/teammate-quickstart.md` | how to run a job. Read before running anything. |
 | 14 | `env/gpu-support.md`, `env/a100-sm80-failure.md` | the hardware situation and how it broke |
-| 15 | `code/` | `run_benchmark.py` (harness), `phase0.sh` (the job script), `kprobe_32k.sh` / `kprobe_ngram.sh` (k sweeps), `summarize.py`, `check_lossless.py`, `diag_a100.sh`, `rebuild_multiarch.sh`, `submit_a100_predict.sh` |
+| 15 | `code/` | `run_benchmark.py` (harness), `phase0.sh` (the job script), `kprobe_32k.sh` (k sweeps), `summarize.py`, `check_lossless.py`, `diag_a100.sh`, `rebuild_multiarch.sh`, `submit_a100_predict.sh`. **Not in this repository:** `kprobe_ngram.sh` and `diag_a100_multiarch.sh` were both built with `sed` on Delta (section 8.6) and have never been pushed; they exist only at `/projects/bikd/dagraw2/Speculative_Ladder/ladder/scripts/`. Corrected 11 Oct 2026 — a read order that names files the reader cannot open sends them hunting for a file that is not there. |
 | 16 | `results/` | raw JSONL plus per-request JSON files |
 | 17 | `TODO.md` | task list |
 
