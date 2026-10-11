@@ -70,6 +70,55 @@ directory overwrites the first.
 
 ---
 
+## 11 Oct 2026 (latest) — decision tree committed; analysis tools; subsets
+
+Still before any record from 22802261 or 22802262 was read.
+
+- `notes/2026-10-11-a100-decision-tree.md`: how each outcome of the A100
+  test is read, fixed in advance; the plan to the 20 Oct review under
+  wall-clock rather than hours; measurement stops end of 17 Oct.
+- **`SEED` is inert.** `run_benchmark.py` passes it only to `SamplingParams`
+  and reads the first `LIMIT` lines of the bucket file, so the planned
+  `SEED=5678` repeat would have re-measured the same prompts. Struck. Found by
+  reading the script, not inferring it (RULES section 13).
+- **Intervals come from disjoint prompt subsets.** `code/make_subsets.py`
+  slices the shared bucket files into `sub1..sub4` directories under
+  `/projects/bikd/$USER/Speculative_Ladder/data/`, each holding the file under
+  the canonical name so `phase0.sh`'s `$DATA/longbench_v2_${BUCKET}.jsonl`
+  resolves; refuses to write on any `_id` overlap. Subset 0 is the existing
+  measurement. Extensible: more subsets later, nothing redone.
+- **`summarize.py` now groups by job** and announces every cell measured in
+  more than one job; speedups are within-job. Open item 1 closed. Verified on
+  `results/a40`: nine cells listed as repeated, which is the replication that
+  the old table hid.
+- **`code/analyze.py`**: per-record table with job, host, GPU and subset;
+  `--predict BUCKET:RUNG:K=VALUE` scores a frozen prediction per cell with
+  signed errors and scores the 32K ordering separately; spreads across jobs,
+  labelled as prompt-subset intervals or same-prompt noise. Checked against
+  the register: 32K DFlash k=7 0.8260 / 0.8259, n-gram 1.0782 / 1.0775.
+- The 2K, 8K and 32K cells share documents (all 25 of 32K's ids are in 2K's
+  first 50); recorded in `paper/threats.md`.
+
+Commands for the subsets, login node:
+
+```bash
+module load cray-python/3.12.12
+cd /projects/bikd/dagraw2/Speculative_Ladder/repo && git pull
+python3 code/make_subsets.py            # writes sub1..sub4 for 2K, 8K, 32K
+SHARED=/projects/bikd/dagraw2/Speculative_Ladder
+D=/projects/bikd/$USER/Speculative_Ladder
+cd $SHARED/ladder/scripts
+for s in 1 2 3 4; do
+  for b in 2K:50 8K:50 32K:25; do
+    B=${b%%:*}; N=${b##*:}; mkdir -p $D/results/a40_sub$s
+    sbatch --export=ALL,LADDER_VENV=$SHARED/vllm_env_multiarch,LADDER_DATA=$D/data/sub$s,LADDER_OUT=$D/results/a40_sub$s,BUCKET=$B,LIMIT=$N,CONC=1 phase0.sh
+  done
+done
+python3 $SHARED/repo/code/analyze.py $D/results/a40_sub1 $D/results/a40_sub2 ...   # after they land
+```
+
+---
+
 ## 11 Oct 2026 (later) — spec sheets checked; the A40 ridge point was wrong
 
 The second review withdrew C17's bandwidth mechanism on the strength of two

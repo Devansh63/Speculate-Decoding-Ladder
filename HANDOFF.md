@@ -212,7 +212,7 @@ Read in this order. Everything here is current.
 | 12 | `notes/2026-10-01-a40-2k-concurrency-sweep.md` | the load axis, and the founding result |
 | 13 | `notes/teammate-quickstart.md` | how to run a job. Read before running anything. |
 | 14 | `env/gpu-support.md`, `env/a100-sm80-failure.md` | the hardware situation and how it broke |
-| 15 | `code/` | `run_benchmark.py` (harness), `phase0.sh` (the job script), `kprobe_32k.sh` (k sweeps), `summarize.py`, `check_lossless.py`, `diag_a100.sh`, `rebuild_multiarch.sh`, `submit_a100_predict.sh`, `c10_control.sh` + `c10_control.py` (the C10 same-config control and its bootstrap). **Not in this repository:** `kprobe_ngram.sh` and `diag_a100_multiarch.sh` were both built with `sed` on Delta (section 8.6) and have never been pushed; they exist only at `/projects/bikd/dagraw2/Speculative_Ladder/ladder/scripts/`. Corrected 11 Oct 2026 — a read order that names files the reader cannot open sends them hunting for a file that is not there. |
+| 15 | `code/` | `run_benchmark.py` (harness), `phase0.sh` (the job script), `kprobe_32k.sh` (k sweeps), `summarize.py`, `check_lossless.py`, `diag_a100.sh`, `rebuild_multiarch.sh`, `submit_a100_predict.sh`, `c10_control.sh` + `c10_control.py` (the C10 same-config control and its bootstrap), `analyze.py` (per-record analysis: within-job speedups, frozen-prediction scoring, spreads across prompt subsets; added 11 Oct), `make_subsets.py` (slices the bucket files into disjoint prompt subsets, one directory each, for `LADDER_DATA`; added 11 Oct). **Not in this repository:** `kprobe_ngram.sh` and `diag_a100_multiarch.sh` were both built with `sed` on Delta (section 8.6) and have never been pushed; they exist only at `/projects/bikd/dagraw2/Speculative_Ladder/ladder/scripts/`. Corrected 11 Oct 2026 — a read order that names files the reader cannot open sends them hunting for a file that is not there. |
 | 16 | `results/` | raw JSONL plus per-request JSON files |
 | 17 | `TODO.md` | task list |
 
@@ -376,10 +376,10 @@ This is the highest-value GPU time available to the project.
 
 **Free — do these first, they cost nothing:**
 
-1. **Fix `summarize.py` to group by `env.slurm_job`**, or at minimum warn on
-   duplicate keys. It currently keys on `(bucket, conc, rung, k)` and silently
-   keeps one record per key. This hid a genuine replication for four days and
-   caused three wrong write-ups in one day. Highest-value change in the repo.
+1. ~~**Fix `summarize.py` to group by `env.slurm_job`**~~ **Done 11 Oct.**
+   Every realization is now listed with its job id, speedups are within-job,
+   and a NOTE names every cell measured in more than one job. `analyze.py`
+   adds prediction scoring and subset spreads on top of the same arithmetic.
 2. **Run the same-config control for C10** (`code/c10_control.sh`, A40, ~0.32
    GPU-hours) and bootstrap it (`code/c10_control.py`, free). The bootstrap
    over prompts is legitimate here, unlike speedup and tau, because agreement

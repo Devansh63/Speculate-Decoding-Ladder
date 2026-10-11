@@ -55,6 +55,10 @@ def conc_label(c):
     return "auto" if not c else str(c)
 
 
+def job_of(rec):
+    return str((rec.get("env") or {}).get("slurm_job") or "none")
+
+
 def bucket_key(b):
     s = b.replace("K", "")
     return int(s) if s.isdigit() else 0
@@ -101,30 +105,54 @@ def main():
     if not rows:
         sys.exit("no rows in " + path)
 
-    # Last run wins if a cell was repeated.
+    # One row per record, keyed by JOB as well as cell. Until 11 Oct this
+    # dictionary was keyed on the cell alone and "last run wins", which
+    # rendered two jobs measuring the same cell as one row and hid a
+    # replication for four days (register, 11 Oct correction). Duplicates
+    # within one job are the only thing still collapsed, and they are reported.
     latest = {}
+    dup_in_job = []
     for r in rows:
-        latest[(r["bucket"], conc_of(r), r["rung"], r.get("k", 0))] = r
+        key = (job_of(r), r["bucket"], conc_of(r), r["rung"], r.get("k", 0))
+        if key in latest:
+            dup_in_job.append(key)
+        latest[key] = r
 
+    cells = defaultdict(set)
+    for (job, bucket, conc, rung, k) in latest:
+        cells[(bucket, conc, rung, k)].add(job)
+    repeated = {c: sorted(j) for c, j in cells.items() if len(j) > 1}
+
+    # Baseline is the off arm of the SAME job at the same concurrency.
     baseline = {}
-    for (bucket, conc, rung, k), r in latest.items():
+    for (job, bucket, conc, rung, k), r in latest.items():
         if rung == "off":
-            baseline[(bucket, conc)] = r["throughput_tok_s"]
+            baseline[(job, bucket, conc)] = r["throughput_tok_s"]
 
-    order = sorted(latest, key=lambda t: (bucket_key(t[0]), t[1], t[2], t[3]))
+    order = sorted(latest, key=lambda t: (bucket_key(t[1]), t[2], t[3], t[4], t[0]))
 
-    print(f"{'bucket':>7} {'conc':>5} {'rung':>8} {'k':>3} {'n':>4} "
+    if repeated:
+        print("NOTE: %d cell(s) measured in more than one job; every realization is "
+              "listed, split by job. Compare ratios across jobs, never tok/s." % len(repeated))
+        for (bucket, conc, rung, k), jobs in sorted(repeated.items(), key=lambda t: (bucket_key(t[0][0]), t[0][1])):
+            print("      %s c=%s %s k=%s: jobs %s" % (bucket, conc_label(conc), rung, k, ", ".join(jobs)))
+    if dup_in_job:
+        print("WARNING: %d record(s) share a cell key within one job; the later record "
+              "was kept. A job that measured a cell twice needs its own LADDER_OUT." % len(dup_in_job))
+    print()
+
+    print(f"{'job':>9} {'bucket':>7} {'conc':>5} {'rung':>8} {'k':>3} {'n':>4} "
           f"{'tok/s':>8} {'speedup':>8} {'tauC':>6} {'tauE':>6} {'cov':>6} "
           f"{'R':>6} {'AL@5':>6} {'pos1':>6}")
-    print("-" * 94)
+    print("-" * 104)
     for key in order:
-        bucket, conc, rung, k = key
+        job, bucket, conc, rung, k = key
         r = latest[key]
         spec = r.get("spec", {}) or {}
         acc = spec.get("acceptance_by_position") or []
         d = derive(r)
 
-        base = baseline.get((bucket, conc))
+        base = baseline.get((job, bucket, conc))
         speed = r["throughput_tok_s"] / base if base else float("nan")
         al5 = al_at_k(acc, 5)
         tauE = d["tau_eff"]
@@ -133,7 +161,7 @@ def main():
         def fmt(x, w=6, p=3):
             return f"{x:>{w}.{p}f}" if isinstance(x, float) and x == x else f"{'':>{w}}"
 
-        print(f"{bucket:>7} {conc_label(conc):>5} {rung:>8} {k:>3} {r['limit']:>4} "
+        print(f"{job:>9} {bucket:>7} {conc_label(conc):>5} {rung:>8} {k:>3} {r['limit']:>4} "
               f"{r['throughput_tok_s']:>8.1f} {speed:>8.2f} "
               f"{fmt(d['tau_cond'])} {fmt(tauE)} {fmt(d['coverage'])} "
               f"{fmt(R)} {fmt(al5)} "
@@ -145,26 +173,26 @@ def main():
     print("R     implied verification cost ratio, tauE / speedup")
 
     print("\ndraft counters")
-    print(f"{'bucket':>7} {'conc':>5} {'rung':>8} {'k':>3} "
+    print(f"{'job':>9} {'bucket':>7} {'conc':>5} {'rung':>8} {'k':>3} "
           f"{'drafts':>9} {'drafted':>10} {'accepted':>10} {'gen_tok':>9} {'acc_rate':>9}")
-    print("-" * 74)
+    print("-" * 84)
     for key in order:
-        bucket, conc, rung, k = key
+        job, bucket, conc, rung, k = key
         if rung == "off":
             continue
         r = latest[key]
         s = r.get("spec", {}) or {}
-        print(f"{bucket:>7} {conc_label(conc):>5} {rung:>8} {k:>3} "
+        print(f"{job:>9} {bucket:>7} {conc_label(conc):>5} {rung:>8} {k:>3} "
               f"{s.get('drafts', 0):>9} {s.get('draft_tokens', 0):>10} "
               f"{s.get('accepted_tokens', 0):>10} {r.get('gen_tokens', 0):>9} "
               f"{s.get('draft_acceptance_rate', float('nan')):>9.3f}")
 
     print("\nacceptance by draft position")
     for key in order:
-        bucket, conc, rung, k = key
+        job, bucket, conc, rung, k = key
         acc = (latest[key].get("spec", {}) or {}).get("acceptance_by_position")
         if acc:
-            print(f"  {bucket:>5} c={conc_label(conc):<5} {rung:>7} k={k:<3} " +
+            print(f"  {job} {bucket:>5} c={conc_label(conc):<5} {rung:>7} k={k:<3} " +
                   ", ".join(f"{p:.3f}" for p in acc))
 
     # Concurrency sensitivity: the headline of Phase 0. How fast does each
@@ -174,22 +202,24 @@ def main():
     print("\nconcurrency sensitivity, per bucket and rung")
     curves = defaultdict(dict)
     for key in order:
-        bucket, conc, rung, k = key
+        job, bucket, conc, rung, k = key
         if rung == "off" or not conc:
             continue
         r = latest[key]
-        base = baseline.get((bucket, conc))
+        base = baseline.get((job, bucket, conc))
         if not base:
             continue
         d = derive(r)
-        curves[(bucket, rung, k)][conc] = (
+        curves[(job, bucket, rung, k)][conc] = (
             r["throughput_tok_s"] / base, d["tau_cond"], d["tau_eff"])
-    for (bucket, rung, k), by_conc in sorted(curves.items(), key=lambda t: (bucket_key(t[0][0]), t[0][1], t[0][2])):
+    for (job, bucket, rung, k), by_conc in sorted(curves.items(), key=lambda t: (bucket_key(t[0][1]), t[0][2], t[0][3], t[0][0])):
+        if len(by_conc) < 2:
+            continue
         parts = []
         for c in sorted(by_conc):
             sp, tc, te = by_conc[c]
             parts.append(f"c={c}: {sp:.2f}x (tauC {tc:.2f})")
-        print(f"  {bucket:>5} {rung:>7} k={k:<3} " + "   ".join(parts))
+        print(f"  {job} {bucket:>5} {rung:>7} k={k:<3} " + "   ".join(parts))
         # Where does it cross 1.0x? Linear interpolation between the bracketing
         # concurrency levels. Reported as a range, because it is one.
         cs = sorted(by_conc)
@@ -211,13 +241,17 @@ def main():
     print("\ndecay D = 1 - AL(long) / AL(2K), at a common truncation of k=5, "
           "matched on concurrency")
     by_rung = defaultdict(dict)
+    # Acceptance, unlike throughput, may be compared across jobs: it is a
+    # property of the drafter and the prompts, not the node (C16). Where a
+    # bucket was measured in more than one job the values agree to the third
+    # decimal; the first job in sorted order is used here.
     for key in order:
-        bucket, conc, rung, k = key
+        job, bucket, conc, rung, k = key
         if rung == "off":
             continue
         acc = (latest[key].get("spec", {}) or {}).get("acceptance_by_position")
         if acc:
-            by_rung[(rung, k, conc)][bucket] = al_at_k(acc, 5)
+            by_rung[(rung, k, conc)].setdefault(bucket, al_at_k(acc, 5))
     printed = False
     for (rung, k, conc), buckets in sorted(by_rung.items(), key=lambda t: (t[0][0], t[0][1], t[0][2])):
         if "2K" not in buckets or len(buckets) < 2:
@@ -232,8 +266,8 @@ def main():
     if not printed:
         print("  (needs at least two context buckets at the same concurrency)")
 
-    print("\nNote: single runs, no confidence intervals. The milestone needs a "
-          "paired bootstrap over prompts before any claim is made.")
+    print("\nNote: no confidence intervals here. Intervals come from disjoint prompt "
+          "subsets, each its own job; see code/analyze.py for the spread across them.")
 
 
 if __name__ == "__main__":
