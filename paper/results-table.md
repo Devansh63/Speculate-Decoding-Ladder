@@ -6,12 +6,12 @@ length, and the job and node that produced each number. Derived from
 
 Two things to state before any number:
 
-1. **Everything here is Qwen3-8B on A40.** The hardware axis (C4) has no data
-   in it. The single A100 attempt produced nothing, and the rebuild that fixed
-   that has not yet been used for measurement.
+1. **Target model is Qwen3-8B throughout.** Hardware is A40 for everything at
+   n >= 25; the A100 column holds one smoke cell at n=5, which is the whole of
+   C4's measured evidence so far.
 2. **Every speedup is a within-job ratio** — each arm divided by the `off` arm
    measured in the same job, same engine session, same node. Ratios replicate
-   across nodes to 0.08%; absolute throughput does not (8.8% against one
+   across nodes to 0.03–0.08%; absolute throughput does not (8.8% against one
    node). Never compare throughput across jobs; compare ratios.
 
 This file exists because the grid previously lived only in `summarize.py`
@@ -28,7 +28,7 @@ how a replicated result was recorded as a single run for four days. See
 |---|---|---|
 | target | Qwen3-8B | bf16, 256 max new tokens, seed 1234, greedy |
 | `off` | no drafter | the baseline every speedup divides by |
-| `ngram` | prompt lookup, no model | n-gram match against the prompt; drafts on only a fraction of steps |
+| `ngram` | prompt lookup, no model | n-gram match against the prompt; drafts on a fraction of steps |
 | `dflash` | Qwen3-8B-DFlash-b16 | trained draft head; drafts on ~100% of steps |
 
 Workload: LongBench-v2, bucketed by prompt length into 2K / 8K / 32K.
@@ -37,11 +37,13 @@ Engine: vLLM `0.29.1rc1.dev345+gbf13ecc2f`, torch 2.13.0+cu130,
 
 ---
 
-## Headline grid — speedup against no speculation
+## Headline grid — A40, speedup against no speculation
 
 | context | batch | prompts | `off` | `ngram` k=5 | `dflash` k=7 | job | node |
 |---|---|---|---|---|---|---|---|
 | 2K | 1 | 50 | 1.00 | 1.15 | **1.86** | 22598608 | — |
+| 2K | 1 | 5 | 1.00 | 1.137 | 1.867 | 22757102 | gpub067 |
+| 2K | 1 | 5 | 1.00 | 1.137 | 1.893 | 22757105 | gpub085 |
 | 2K | 8 | 50 | 1.00 | 1.07 | 1.49 | 22598608 | — |
 | 2K | 32 | 50 | 1.00 | 0.81 | 1.03 | 22598608 | — |
 | 2K | unbounded | 100 | 1.00 | 0.71 | 0.86 | 22569403 | — |
@@ -53,10 +55,24 @@ Engine: vLLM `0.29.1rc1.dev345+gbf13ecc2f`, torch 2.13.0+cu130,
 | 32K | 2 | 25 | 1.00 | 1.05 | 0.91 | 22713173 | gpub019 |
 | 32K | 4 | 25 | 1.00 | 0.99 | 0.88 | 22713173 | gpub019 |
 
-The two bolded 32K rows at batch 1 are the same cell measured independently
-three days apart on different machines. Underlying throughput:
+## Headline grid — A100-SXM4-40GB
 
-| | job 22713173, gpub019 | job 22714602, gpub047 |
+| context | batch | prompts | `off` | `ngram` k=5 | `dflash` k=7 | job | node |
+|---|---|---|---|---|---|---|---|
+| 2K | 1 | 5 | 1.00 | 1.06 | 1.79 | 22757104 | gpua045 |
+
+Everything else on A100 is **predicted, not measured** — see "Frozen
+prediction, 11 Oct 2026" in `paper/claims.md`.
+
+---
+
+## Replications
+
+Three cells have been measured more than once. All are within-job ratios.
+
+**32K, batch 1, n=25** — the inversion, three days apart on two nodes:
+
+| | 22713173, gpub019 | 22714602, gpub047 |
 |---|---|---|
 | `off` | 14.90 tok/s | 14.83 tok/s |
 | `ngram` k=5 | 16.07 | 15.98 |
@@ -64,18 +80,72 @@ three days apart on different machines. Underlying throughput:
 | n-gram speedup | 1.0785 | 1.0776 |
 | DFlash speedup | 0.8262 | 0.8260 |
 
-**0.08% and 0.02% agreement.** This is the inversion — the only place n-gram
-beats DFlash, and the only place DFlash loses to doing nothing — and it is
-the best-replicated result in the project.
+**0.08% and 0.02% agreement.** This is the inversion, and it is the
+best-replicated result in the project.
 
-"unbounded" is the 30 Sep run with no concurrency control. vLLM batched as
-wide as memory allowed, so those speedups measure the batching decision
-rather than the drafter. Kept as the saturation end of the load axis, not as
-a valid cell.
+**2K, batch 1, n=5** — two A40 nodes, same hour:
+
+| | 22757102, gpub067 | 22757105, gpub085 |
+|---|---|---|
+| `off` | 32.95 | 32.94 |
+| `ngram` k=5 | 37.48 | 37.46 |
+| `dflash` k=7 | 61.51 | 62.37 |
+| n-gram speedup | 1.1375 | 1.1372 |
+| DFlash speedup | 1.8668 | 1.8934 |
+
+Baselines agree to **0.03%**. Four A40 nodes have now been measured; three
+agree tightly, which makes gpub073 (job 22757472, 8.8% low) an outlier rather
+than typical spread.
+
+**2K, batch 1** across n — n=5 against n=50: `off` 32.95 vs 32.6 (1.1%),
+n-gram 1.137 vs 1.15, DFlash 1.867 vs 1.86. The small prompt count holds up
+better than expected for ratios.
+
+"unbounded" in the A40 grid is the 30 Sep run with no concurrency control.
+vLLM batched as wide as memory allowed, so those speedups measure the batching
+decision rather than the drafter. Kept as the saturation end of the load axis,
+not as a valid cell.
 
 ---
 
-## Draft-length sweeps, batch 1
+## Hardware comparison — A40 against A100, 2K, batch 1, n=5
+
+The central test of the project's structure: does acceptance transfer across
+machines while cost does not?
+
+| | A40 | A100 | change |
+|---|---|---|---|
+| **DFlash tau_cond** | 2.594 | 2.572 | **-0.8%** |
+| **n-gram tau_cond** | 2.533 | 2.525 | **-0.3%** |
+| DFlash tau_eff | 2.570 | 2.560 | -0.4% |
+| n-gram tau_eff | 1.223 | 1.199 | -2.0% |
+| **DFlash R** | 1.358 | 1.433 | **+5.5%** |
+| **n-gram R** | 1.075 | 1.132 | **+5.3%** |
+| DFlash speedup k=7 | 1.89x | 1.79x | -5.3% |
+| n-gram speedup k=5 | 1.14x | 1.06x | -7.0% |
+| n-gram coverage | 0.145 | 0.130 | -10% |
+| DFlash first-position acceptance | 0.641 | 0.610 | -4.8% |
+| n-gram first-position acceptance | 0.559 | 0.547 | -2.1% |
+| `off` throughput | 33.0 tok/s | 72.8 tok/s | A100 **2.21x faster** |
+
+**Acceptance transfers to under one percent; the cost ratio rises 5.5%, and by
+the same amount for both rungs** — rungs that differ by 4x in drafting cost
+and 7x in coverage. That is what a machine property looks like.
+
+The A100 is 2.21x faster at plain decoding and speculation pays *less* there,
+which is the expected direction: speculation reclaims wasted memory
+bandwidth, and a faster machine wastes less.
+
+Two caveats on this table. **n=5**, so the per-position and coverage rows may
+be sampling noise rather than real — about 500 draft events per arm. And a
+different GPU means different kernels and therefore different logits, the same
+nondeterminism seen between eager and compiled paths on 8 Oct, so a real
+acceptance shift cannot be ruled out either. Needs n=50 to separate them.
+Write-up in `notes/2026-10-11-hardware-transfer.md`.
+
+---
+
+## Draft-length sweeps, batch 1, A40
 
 | context | rung | k=1 | k=2 | k=4 | k=5 | k=7 | k=15 | job |
 |---|---|---|---|---|---|---|---|---|
@@ -85,23 +155,21 @@ a valid cell.
 | 8K | DFlash | 0.96 | 1.10 | — | — | **1.26** | — | 22737717 / 22685911 |
 | 8K | n-gram | — | — | — | 1.15 | — | — | 22685911 |
 | 32K | DFlash | 0.76 | 0.78 | 0.81 | — | **0.83** | — | 22714602 |
-| 32K | n-gram | 1.04 | 1.13 | — | 1.08 | 1.18 | — | 22757472 / 22713173 |
+| 32K | n-gram | 1.04 | 1.13 | — | 1.08 | 1.18 ⚠ | — | 22757472 / 22713173 |
 
 **Optimal k rises with context and shrinks with load.** DFlash improves
 monotonically in k at every bucket, with no turn by k=7; the only place k=15
 loses to k=7 is 2K under unbounded batching. The two axes act in opposite
 directions, which corrects an earlier claim that they behaved alike.
 
-**Caveat on the 32K n-gram row.** k = 1, 2, 7 come from job 22757472 on
-**gpub073**, a node whose `off` throughput was 8.8% below the two other
-nodes, and on which speculation appears to help ~7% more than elsewhere.
-k=5 (1.08) comes from gpub019 and gpub047. Do not read the k=5 to k=7 step as
-a real gain; the k-coefficient for n-gram at 32K is unresolved and
+⚠ The 32K n-gram k = 1, 2, 7 values come from job 22757472 on **gpub073**, the
+one anomalous node. k=5 (1.08) comes from gpub019 and gpub047. Do not read the
+k=5 to k=7 step as a real gain; n-gram's 32K k-coefficient is unresolved and
 non-monotonic within its own job.
 
 ---
 
-## Acceptance
+## Acceptance, A40
 
 Conditional mean accepted length (`tau_cond`), batch 1, and decay
 `D = 1 - AL(long)/AL(2K)` at a common k=5 truncation:
@@ -137,16 +205,16 @@ all, which engine-reported acceptance rates are conditional on:
 
 n-gram's coverage *rises* with context — a longer prompt offers more places
 for a lookup to hit — while its acceptance stays flat. DFlash drafts on
-essentially every step. Comparing the two rungs on raw acceptance without
-this correction overstates n-gram by more than a factor of two.
+essentially every step. Comparing the two rungs on raw acceptance without this
+correction overstates n-gram by more than a factor of two.
 
 ---
 
 ## Cost model
 
-`R(k) = (1 + R_draft) + c·k`, fitted per cell at batch 1. `R_draft` is the
-fixed cost of drafting per decode step; `c` is the marginal cost per drafted
-token.
+`R(k) = (1 + R_draft) + c·k`, fitted per cell at batch 1 on A40. `R_draft` is
+the fixed cost of drafting per decode step; `c` is the marginal cost per
+drafted token.
 
 | context | rung | R_draft | c | fit |
 |---|---|---|---|---|
@@ -161,8 +229,12 @@ gap** grows 0.225 to 0.523, and that is what flips the ranking — not a
 difference in how the two scale. Both costs are sublinear in context: a 16x
 longer prompt roughly doubles each, and nothing in the model explains why.
 
-Out-of-sample check: the 2K n-gram fit predicts `R(5) = 1.086`; job 22598608
-measured **1.083**, ten days earlier and with k=5 excluded from the fit.
+Out-of-sample checks:
+
+- 2K n-gram fit predicts `R(5) = 1.086`; job 22598608 measured **1.083**, ten
+  days earlier with k=5 excluded from the fit.
+- Machine factor **1.054** measured between A40 and A100 at 2K. Applied to the
+  A40 grid it predicts the unmeasured A100 cells; frozen in `claims.md`.
 
 ---
 
@@ -170,22 +242,28 @@ measured **1.083**, ten days earlier and with k=5 excluded from the fit.
 
 | GPU | arch | status | data |
 |---|---|---|---|
-| A40 | sm_86 | working throughout | everything above |
-| A100 | sm_80 | one attempt lost all 9 arms; unblocked 8 Oct by the multi-architecture rebuild, verified by job 22754950 | **none** |
-| H200 | sm_90 | kernels present in the rebuilt venv, but `phase0.sh`'s guard allows only `80|86` and aborts | none |
+| A40 | sm_86 | working throughout | everything at n >= 25, plus two n=5 cells |
+| A100-SXM4-40GB | sm_80 | **working** since the 8 Oct multi-architecture rebuild | one cell: 2K, batch 1, n=5 (job 22757104) |
+| H200 | sm_90 | kernels present in the rebuilt venv, but `phase0.sh`'s guard allows only `80\|86` and aborts | none |
 
 Any A100 or H200 job **must** set
 `LADDER_VENV=/projects/bikd/dagraw2/Speculative_Ladder/vllm_env_multiarch`.
 Without it the script falls back to a single-architecture build and the job
 dies at kernel launch after reserving a node, as job 22685764 did.
 
+Note that the A100-SXM4-40GB has **40 GB against the A40's 48**, so the
+concurrency ceiling at 32K is lower and a long-context A100 cell may sit in a
+different memory regime. Recorded as a pre-registered confound in `claims.md`.
+
 ---
 
 ## What is not in this table
 
 - **No confidence intervals.** Per-request timing is unavailable on this vLLM
-  build, so intervals require repeated whole runs. The 32K batch-1 cell is
-  the only one with two independent realizations.
+  build, so intervals require repeated whole runs. Three cells have two
+  realizations each; nothing has three.
+- **Only one A100 cell, at n=5.** The 8K and 32K A100 predictions are frozen
+  and untested. Two cells at n=50 would settle C4.
 - **No 8K n-gram k sweep**, so the middle `R_draft` point is missing for that
   rung.
 - **No k above 7 at batch 1** anywhere. Speedup is still rising at k=7 in
