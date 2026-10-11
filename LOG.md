@@ -70,6 +70,47 @@ directory overwrites the first.
 
 ---
 
+## 11 Oct 2026 (later) — spec sheets checked; the A40 ridge point was wrong
+
+The second review withdrew C17's bandwidth mechanism on the strength of two
+ridge points it marked unverified. Checked against NVIDIA's own datasheets
+(no GPU, login-node work only):
+
+| GPU | dense bf16 | bandwidth | ridge | source |
+|---|---|---|---|---|
+| A40 | 149.7 TFLOPS | 696 GB/s | **~215** | A40 datasheet, Mar22 (299.4 is the sparse figure) |
+| A100-SXM4-40GB | 312 TFLOPS | 1,555 GB/s | ~201 | A100 datasheet, Jun21 r4, 40GB SXM column |
+| H200 SXM | ~989 TFLOPS | 4.8 TB/s | ~206 | nvidia.com/h200: 1,979 TFLOPS "with sparsity", halved |
+
+**The A40's 107 was wrong.** The 27 Sep compute memo took 74.8 TFLOPS by
+halving 149.7 on the belief that it was the sparse figure. It is the dense
+one. What followed:
+
+1. **New claim C18: plain decode is bandwidth-bound at batch 1.** A100/A40
+   `off` throughput 72.8/33.0 = 2.21x against a bandwidth ratio of 2.23x and a
+   compute ratio of 2.08x. Both machines reach ~78% of peak bandwidth on the
+   target's weights. First spec-sheet number checked against a measurement.
+2. **C17's mechanism stays unexplained, with an elimination argument.** At
+   batch 1 every pass in a decode step runs at about 8 to 16 FLOP/byte,
+   far below every ridge here, so roofline predicts `R` identical on all
+   three GPUs. The measured +5.4% is therefore non-roofline. The review's
+   "roofline predicts more gain on A100" is withdrawn along with the 107.
+3. **There is no compute-to-bandwidth ratio axis across A40 / A100 / H200.**
+   All three sit at 201 to 215. C4 and C17 are restated as transfer across a
+   **bandwidth** axis (0.70 to 4.8 TB/s, ~7x). The proposal's stated reason
+   for holding out the A40 traces to the halved figure. The Drive compute
+   memo still carries it and is outside this repository; `HANDOFF.md`'s Drive
+   table now warns.
+
+Swept per RULES section 8: `HANDOFF.md` (2.7, 4.2, open item 4, Drive table),
+`paper/results-table.md`, `env/gpu-support.md`, a further banner on
+`notes/2026-10-11-hardware-transfer.md`, and inline markers in this file.
+`notes/PROJECT-BRIEF-for-review.md` keeps its 107 as a dated snapshot.
+`paper/claims-corrections-2026-10-11b.md` deleted: it was folded into the
+register in 597d4e3.
+
+---
+
 ## 11 Oct 2026 (late) — second review, and four claims withdrawn
 
 A second independent review, briefed only from `HANDOFF.md` and the
@@ -98,6 +139,9 @@ and a ratio of two spec-sheet figures.
    stands, mechanism unexplained. Candidate hypothesis recorded — fixed
    per-step overheads are a larger fraction of a faster GPU's step time.
    **The spec sheets are now a prerequisite for any mechanism claim.**
+   **[Superseded 11 Oct (later): the A40's ridge point is ~215, not ~107, so
+   this roofline argument is withdrawn too. Mechanism still unexplained; see
+   the newer entry.]**
 4. **C8's two realizations share one prompt set** — same 25 prompts, same
    seed. They bound node and run-to-run variance, not prompt-sample variance.
    Closing it needs a 32K concurrency-1 cell on a different prompt subset,
@@ -161,6 +205,8 @@ and a faster machine wastes less. **Spec sheets not yet verified**, so that is
 a direction rather than arithmetic. **[Superseded 11 Oct (late): the mechanism
 is withdrawn. The A100's ridge point is *higher* than the A40's, so roofline
 predicts speculation should gain more there. See the latest entry.]**
+**[And that reason is itself withdrawn, 11 Oct (later): the A40's ridge
+point is ~215, not ~107. Spec-sheet entry, top of this file.]**
 
 Write-up in `notes/2026-10-11-hardware-transfer.md`; new claims C16 (tau
 invariant) and C17 (R scales by one factor, rung-independent).
@@ -673,6 +719,7 @@ sacct -S 2026-09-30 -u $USER -X \
 | Sahil's results are missing because he did not set `LADDER_OUT` | He set it. Zero records in *our* tree was correct behaviour | one wrong diagnosis |
 | Sahil must grant read access to his results tree | `drwxrws---+` under `delta_bikd`, readable already | — |
 | Per-arm cost extrapolation estimates a job's runtime | Wrong by ~2x three times running | repeated bad planning |
+| The A40's ridge point is ~107, half the H200's, so it is the held-out platform on the ratio axis | The 27 Sep memo halved NVIDIA's dense bf16 figure (149.7) believing it was the sparse one. The real ridge is ~215; A40, A100 and H200 all sit at 201 to 215 | the proposal's platform rationale, one withdrawn mechanism argument, and a review built on it; caught by reading the datasheet |
 
 **The pattern in most of these:** a conclusion drawn from a proxy — a file
 listing, a directory name, a traceback line, a group name, a module name, a
@@ -736,9 +783,9 @@ axis is assigned to it.
   `tokenspeed-triton-3.8.10` and may have displaced `triton-3.7.1`. If so, any
   A40-vs-A100 gap is confounded by more than the architecture list, which
   breaks the "same binary" premise behind C16 and C17.
-- **Verify the A100 and A40 spec sheets.** Now a **prerequisite for any
-  mechanism claim**, not a nice-to-have: C17's bandwidth explanation was
-  withdrawn on 11 Oct and the review's ridge-point figures are unverified.
+- ~~**Verify the A100 and A40 spec sheets.**~~ **Done 11 Oct (later).**
+  A100 ~201 holds; A40 is ~215, not ~107; H200 ~206. Register, "Spec-sheet
+  check".
 - **Bootstrap the agreement result.** No longer free: the same-config control
   has to be run first, because the token ids for the existing pairs were
   overwritten. `code/c10_control.sh` (~0.32 GPU-hours) then

@@ -136,10 +136,13 @@ and 7x in coverage. That is what a machine property looks like.
 
 The A100 is 2.21x faster at plain decoding and speculation pays *less* there.
 The explanation that used to follow — "speculation reclaims wasted memory
-bandwidth, and a faster machine wastes less" — is **withdrawn**: the A100's
-ridge point (~201 FLOP/byte against the A40's ~107) is *higher*, so naive
-roofline predicts speculation should gain *more* there. It gained less. The
-observation stands; the mechanism is unexplained (register, C17, 11 Oct).
+bandwidth, and a faster machine wastes less" — is **withdrawn**, and so is the
+ridge-point argument first used against it, which took the A40 at ~107
+FLOP/byte. NVIDIA's datasheets give ~215 (A40) and ~201 (A100), and at batch 1
+every pass runs far below both, so no roofline account predicts any change in
+`R` here. The observation stands; the mechanism is unexplained and
+non-roofline. The `off` row does match the spec sheets: 2.21x measured against
+a 2.23x bandwidth ratio (C18). Register, "Spec-sheet check", 11 Oct.
 
 Two caveats on this table. **n=5**, so the per-position and coverage rows may
 be sampling noise rather than real — about 500 draft events per arm. And a

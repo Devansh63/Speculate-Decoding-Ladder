@@ -55,9 +55,13 @@ measurements, making every earlier number unreproducible. If H200 is attempted
 later it goes in a **second venv**, built from the same commit `bf13ecc2f`
 with `TORCH_CUDA_ARCH_LIST="8.0;8.6;9.0"`, so `~/vllm_env` stays frozen.
 
-H200 was a stretch rung in the proposal, not a must-do. A40 at ridge point 107
-and A100 at 201 already give two separated hardware points, which is what the
-R side of the `Speedup ~= tau / R` decomposition needs.
+H200 was a stretch rung in the proposal, not a must-do. A40 and A100 already
+give two separated hardware points, which is what the R side of the
+`Speedup ~= tau / R` decomposition needs. They are separated in **memory
+bandwidth** (696 against 1,555 GB/s), not in compute-to-bandwidth ratio: dense
+bf16 ridge points are ~215 and ~201 FLOP/byte per NVIDIA's datasheets, and the
+H200 is ~206. This paragraph previously gave the A40 as 107, which halved the
+dense figure (corrected 11 Oct 2026; register, "Spec-sheet check").
 
 ## Guard now in both job scripts
 

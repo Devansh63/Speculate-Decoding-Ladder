@@ -676,3 +676,123 @@ than not withdrawing it. Every repeat site, grepped rather than recalled:
 Dated notes keep their bodies: they are records of what was believed when, and
 rewriting them would destroy the same information the register exists to keep.
 Each carries a banner instead.
+
+---
+
+## Spec-sheet check, 11 Oct 2026 (later) — the A40 ridge point was wrong
+
+The second review withdrew C17's bandwidth mechanism on two ridge points,
+A40 ~107 and A100 ~201 FLOP/byte, which it marked unverified. Checked against
+NVIDIA's published figures:
+
+| GPU | dense bf16 tensor | bandwidth | ridge (dense) | source |
+|---|---|---|---|---|
+| A40 | **149.7 TFLOPS** (299.4 with sparsity) | 696 GB/s | **~215** | NVIDIA A40 datasheet, Mar22: "Peak BF16 Tensor TFLOPS with FP32 Accumulate 149.7 \| 299.4\*", \* = structural sparsity |
+| A100-SXM4-40GB | 312 TFLOPS (624 with sparsity) | 1,555 GB/s | ~201 | NVIDIA A100 datasheet, Jun21 (1758950 r4), 40GB SXM column; the current May22 sheet lists only 80 GB parts |
+| H200 SXM | ~989 TFLOPS | 4.8 TB/s | ~206 | nvidia.com/en-us/data-center/h200: 1,979 TFLOPS, footnoted "With sparsity", halved |
+
+**The A100 figure holds; the A40 figure does not.** 107 came from 74.8
+TFLOPS, which the 27 Sep compute memo got by taking "A40 dense bf16 as half
+the sparse figure": it halved 149.7 believing it to be the sparse number. The
+datasheet marks 149.7 as dense. (74.8 is the A40's dense *TF32* figure, which
+may be why it looked right.)
+
+### C17's mechanism: the review's argument is withdrawn, the mechanism stays unexplained
+
+The second review's item 3 argued that the A100's higher ridge point leaves
+more room to turn bandwidth-bound decoding into compute-bound verification, so
+roofline predicts speculation should gain *more* on A100. With 201 against
+215 the premise is false, and that argument is withdrawn.
+
+The original bandwidth story ("a faster machine wastes less") is **not**
+restored, and an elimination argument now says why no roofline account can
+explain the observation at all:
+
+- At batch 1, a verification pass over k+1 = 8 tokens does about 2 FLOPs per
+  parameter per token against 2 bytes per parameter read, roughly 8
+  FLOP/byte. DFlash's 16-position draft block is roughly 16. Attention over
+  the KV cache is lower still.
+- Every ridge point here is 201 to 215. Every pass in a decode step therefore
+  sits an order of magnitude below the ridge on every machine, deep in the
+  bandwidth-bound region. There, roofline puts each pass's time at bytes
+  moved over bandwidth, so `R`, a ratio of byte counts within one machine, is
+  **machine-independent**. The 7% ridge difference is irrelevant at intensity
+  ~10, because a ridge only matters near it.
+- So **roofline predicts no change in `R` between A40 and A100, in either
+  direction.** The measured +5.5% (DFlash) and +5.3% (n-gram) are a
+  non-roofline effect. That is evidence for a cause outside the memory system
+  and the tensor cores, such as fixed per-step costs (kernel launch, CPU
+  scheduling, the sampler, drafter bookkeeping) being a larger *fraction* of
+  a step that the faster GPU completes in less time. Still a hypothesis;
+  testable by profiling one step on each machine, not by more cells.
+
+Caveat on the elimination: roofline assumes every kernel reaches the same
+fraction of peak bandwidth on both machines. C18 below shows the target's
+plain decode does (~79% and ~78%); the drafter's and the verifier's kernels
+have not been checked.
+
+**C17 status:** observation stands (one pair, n=5); mechanism unexplained
+and, by elimination, non-roofline.
+
+---
+
+## C18, 11 Oct 2026 (later) — plain decode is bandwidth-bound at batch 1
+
+| ID | Claim | Status | Falsifier |
+|---|---|---|---|
+| C18 | At batch 1, plain decoding (the `off` arm) is memory-bandwidth-bound, so its throughput ratio between two GPUs equals their bandwidth ratio | **Measured, one pair.** A100/A40 `off` throughput 72.8/33.0 = **2.21x** against a bandwidth ratio of 1555/696 = **2.23x**, and a dense bf16 compute ratio of 312/149.7 = 2.08x. Achieved bandwidth on the target's weights plus KV (~16.7 GB per step at the 2K bucket's mean prompt of 2,226 tokens) is ~553 GB/s on A40 (79% of peak) and ~1,219 GB/s on A100 (78%) | A platform where the throughput ratio and the bandwidth ratio diverge materially |
+
+This is the physical premise under the whole `R` framing: speculation pays
+because a decode step is bound by reading weights, not by arithmetic, so
+verifying several tokens costs about the same as decoding one. Until now it
+was assumed. It is the first spec-sheet figure in the project checked against
+a measurement.
+
+Limits: one A100 node (gpua045), n=5 on the A100 side, 2K only. The 1%
+agreement is suggestive rather than tight: the A40 side's `off` replicates to
+0.03% across nodes, but the A100's has a single realization. The compute
+ratio (2.08) is 6% from the measurement and the bandwidth ratio (2.23) is 1%,
+so the data discriminate between the two, modestly.
+
+---
+
+## Ratio axis, 11 Oct 2026 (later) — a design premise that does not hold
+
+The proposal and the 27 Sep compute memo built the hardware half of the
+project on a **compute-to-bandwidth ratio axis**: fit on the H200 (~206), hold
+out the A40 "because its ratio is roughly half the H200's", and treat the A100
+(~201) as testing memory rather than ratio. The "half" came from the halved
+A40 figure above. With verified numbers:
+
+| GPU | ridge (FLOP/byte) | bandwidth | memory |
+|---|---|---|---|
+| A40 | ~215 | 0.70 TB/s | 48 GB |
+| A100-SXM4-40GB | ~201 | 1.56 TB/s | 40 GB |
+| H200 | ~206 | 4.8 TB/s | 141 GB |
+
+**The ratio axis does not exist across the GPUs available to this project.**
+All three sit within 7% of each other. What they span is **bandwidth** (~7x)
+and **memory capacity** (~3.5x).
+
+Consequences:
+
+- **C4 restated:** the crossing point can be predicted on hardware not used
+  for fitting, **across a memory-bandwidth axis**. Nothing here can test
+  prediction across compute-to-bandwidth ratio, and the report must not
+  claim it.
+- **C17 restated:** `R` changes between machines that differ in bandwidth by
+  a single rung-independent factor. Not "between machines of different
+  balance".
+- **The proposal's reason for choosing the A40 as the held-out platform is
+  void.** The A40 is still a legitimate held-out platform, but on the
+  bandwidth axis, where it is the slowest point rather than the
+  most-different ratio.
+- **The Drive compute memo (`speculation-ladder-delta-compute-memo.md`) still
+  contains the 107 figure and the conclusions drawn from it, and it is not in
+  this repository**, so it cannot be corrected here. `HANDOFF.md`'s Drive
+  table now carries a warning. The original 30 Sep `speculation-ladder-HANDOFF_1.md`
+  on Drive repeats it too ("A40 48 GB 107", and the decision table's "A40's
+  compute-to-bandwidth ratio is about half the H200's").
+- MagicDec's hardware-direction statement (lower inflection on higher
+  FLOPS-to-bandwidth devices) cannot be tested on these three GPUs, since they
+  do not vary in that ratio.

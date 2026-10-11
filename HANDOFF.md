@@ -177,12 +177,16 @@ same amount for both rungs** — rungs that differ 4x in drafting cost and 7x in
 coverage. That is the signature of a machine property. The A100 is 2.2x faster
 and speculation pays *less* there. **Caveat: n=5.** The explanation that used
 to follow here — "speculation reclaims wasted memory bandwidth, and a faster
-machine wastes less" — has been **withdrawn**: it contradicts a roofline
-reading. The A100's ridge point (~201 FLOP/byte) is *higher* than the A40's
-(~107), which leaves more headroom to convert bandwidth-bound decoding into
-compute-bound verification, so naive roofline predicts speculation should gain
-*more* on A100. It gained less. **The observation stands; the mechanism is
-unexplained** (register, C17, 11 Oct).
+machine wastes less" — is **withdrawn**. So is the argument first used to
+withdraw it, that the A100's ridge point is far higher than the A40's: that
+rested on an A40 figure of ~107 FLOP/byte, and NVIDIA's datasheet gives ~215
+against the A100's ~201. At batch 1 every pass in a decode step runs at
+roughly 8 to 16 FLOP/byte, far below either ridge, so no roofline account
+predicts *any* change in `R` between these machines. **The observation
+stands; the mechanism is unexplained, and that it is non-roofline is itself
+the evidence** (register, "Spec-sheet check", 11 Oct). What the spec sheets do
+confirm is C18: plain decoding tracks memory bandwidth, 2.21x measured against
+2.23x in bandwidth.
 
 ---
 
@@ -232,7 +236,7 @@ Read Drive for intent and for the graded proposal. Do not read it for state.
 | `speculation-ladder-implementation-plan-READABLE.md` | 22 Sep | implementation plan, ~561 KB | skim; predates all data |
 | `speculation-ladder-implementation-plan-READABLE (1).md` | 30 Sep | byte-identical duplicate of the above | ignore |
 | `speculation-ladder-HANDOFF_1.md` | 30 Sep | an earlier handoff document, 37 KB | **superseded by this file** |
-| `speculation-ladder-delta-compute-memo.md` | 30 Sep | Delta allocation and compute planning, 17 KB | partly stale; see `LOG.md` budget section |
+| `speculation-ladder-delta-compute-memo.md` | 30 Sep | Delta allocation and compute planning, 17 KB | **misleading on hardware.** Its A40 ridge point (107 FLOP/byte, from 74.8 TFLOPS) halves NVIDIA's dense bf16 figure; the real value is ~215. Every conclusion it draws from the A40 being "half the H200's ratio", including the choice of A40 as the held-out platform, is void. Budget figures also stale; see `LOG.md`. Register, "Ratio axis" |
 | `KEY NOTES SL` (Google Doc) | 22 Sep | early notes | historical |
 | `WEEKLY LOG` (Google Doc) | 22 Sep | weekly log, not updated since | superseded by `LOG.md` |
 | `Links For Docs` (Google Doc) | 27 Sep | index of links | may be stale |
@@ -300,9 +304,13 @@ See `paper/claims.md` for the authoritative version. Summary:
   both realizations at each end agreeing to ~0.1%. Correct statement: n-gram
   degrades mildly with context, far less than DFlash.
 - **C16, C17** (tau is machine-invariant; R scales by a single rung-independent
-  factor) — measured, one pair, n=5. **C17's mechanism is withdrawn**: the
-  bandwidth explanation contradicts the ridge points. The observation stands
-  with the mechanism unexplained.
+  factor) — measured, one pair, n=5. **C17's mechanism is unexplained**: the
+  bandwidth story is withdrawn, and so is the ridge-point argument against it
+  (the A40 figure was wrong). Both are now restated as transfer across a
+  **bandwidth** axis, not a compute-to-bandwidth ratio axis.
+- **C18** (plain decode is bandwidth-bound at batch 1) — measured, one pair:
+  A100/A40 `off` throughput 2.21x against a bandwidth ratio of 2.23x and a
+  compute ratio of 2.08x.
 
 ### 4.3 What is NOT established
 
@@ -381,9 +389,9 @@ This is the highest-value GPU time available to the project.
    has to be re-run.
 3. **Quality evaluation.** Decode stored token ids, score LongBench-v2
    multiple choice. Login node.
-4. **Verify the A100 and A40 spec sheets.** Now a **prerequisite for any
-   mechanism claim**, not a nice-to-have: C17's bandwidth explanation has been
-   withdrawn and the review's ridge-point figures are unverified. Free.
+4. ~~**Verify the A100 and A40 spec sheets.**~~ **Done 11 Oct.** A100
+   holds (~201 FLOP/byte); the A40 was wrong (~215, not ~107); H200 ~206.
+   Register, "Spec-sheet check".
 
 **GPU hours required:**
 

@@ -10,6 +10,15 @@
 > pressure at that concurrency. **The tau and R measurements themselves are
 > unaffected — C16 and C17's observation stands; only C17's explanation is
 > withdrawn.** Register, C17.
+>
+> **Further correction, 11 Oct 2026 (later).** The ridge-point argument in the
+> banner above is itself withdrawn. The A40 figure of ~107 halved NVIDIA's
+> dense bf16 number; the datasheet gives ~215 against the A100's ~201, so the
+> two machines do not differ in compute-to-bandwidth ratio. C17's mechanism
+> remains unexplained, now on the ground that no roofline account predicts a
+> change in `R` at batch 1 at all. The `off` throughput ratio in this note
+> (2.21x) matches the bandwidth ratio (2.23x): claim C18. Register,
+> "Spec-sheet check".
 
 **Source** jobs 22757102 (A40, gpub067), 22757105 (A40, gpub085) and
 **22757104 (A100-SXM4-40GB, gpua045)** — all run by ssashi on 8 Oct as the
