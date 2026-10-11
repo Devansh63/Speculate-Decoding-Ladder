@@ -38,6 +38,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from summarize import derive, conc_of, conc_label, bucket_key  # noqa: E402
 
 
+# Nodes with a recorded anomaly: gpub073 ran 8.8% low on absolute throughput
+# with identical KV allocation and no preemption (job 22757472). Subset jobs
+# exclude it at submission (--exclude=gpub073); this flags it if it slips in.
+ANOMALOUS = {"gpub073"}
+
+
 def load(dirs):
     rows = []
     for d in dirs:
@@ -185,6 +191,24 @@ def table_spreads(rows):
         print("      min %.4f  max %.4f  range %.2f%% of mean" % (min(sp), max(sp), 100 * (max(sp) - min(sp)) / (sum(sp) / len(sp))))
         if 2 <= len(subs) < 5:
             print("      (%d subsets; the plan calls for five before this is quoted as an interval)" % len(subs))
+        # Does the node explain any of it? Realizations on one host differ only
+        # in prompts (if the subsets differ) or in nothing but run noise (if
+        # they do not), so a within-host range is the node-free spread.
+        by_host = defaultdict(list)
+        for r in rs:
+            by_host[host_of(r)].append(r)
+        hosts = ", ".join("%s (%d)" % (h, len(v)) for h, v in sorted(by_host.items()))
+        print("      hosts: %s" % hosts)
+        for h, v in sorted(by_host.items()):
+            if len(v) > 1:
+                vs = [r["_speed"] for r in v]
+                what = "prompt-only" if len({subset_of(r) for r in v}) > 1 else "run-noise-only"
+                print("      within %s (%s): min %.4f max %.4f range %.2f%%"
+                      % (h, what, min(vs), max(vs), 100 * (max(vs) - min(vs)) / (sum(vs) / len(vs))))
+        bad = [r for r in rs if host_of(r) in ANOMALOUS]
+        for r in bad:
+            print("      WARNING: job %s ran on %s, a node with a known anomaly (LOG.md, 11 Oct); "
+                  "report it separately" % (job_of(r), host_of(r)))
 
 
 def main():

@@ -81,12 +81,26 @@ Still before any record from 22802261 or 22802262 was read.
   and reads the first `LIMIT` lines of the bucket file, so the planned
   `SEED=5678` repeat would have re-measured the same prompts. Struck. Found by
   reading the script, not inferring it (RULES section 13).
-- **Intervals come from disjoint prompt subsets.** `code/make_subsets.py`
-  slices the shared bucket files into `sub1..sub4` directories under
-  `/projects/bikd/$USER/Speculative_Ladder/data/`, each holding the file under
-  the canonical name so `phase0.sh`'s `$DATA/longbench_v2_${BUCKET}.jsonl`
-  resolves; refuses to write on any `_id` overlap. Subset 0 is the existing
-  measurement. Extensible: more subsets later, nothing redone.
+- **Intervals come from disjoint prompt subsets, paired by document.**
+  `code/make_subsets.py` cuts the 2K ordering into blocks of 50 documents;
+  a subset's 2K and 8K files are the block, and its 32K file is the first 25
+  documents of the block that reach 32K, taken from the shared 32K file. So
+  the context axis stays a within-document comparison inside every subset
+  (subset 0 pairs 22 of 25; the new ones pair 25 of 25). Directories
+  `sub1..sub4` under `/projects/bikd/$USER/Speculative_Ladder/data/`, each
+  holding the file under the canonical name so `phase0.sh`'s
+  `$DATA/longbench_v2_${BUCKET}.jsonl` resolves. Refuses to write on any
+  `_id` overlap with subset 0 or another subset. Extensible: more subsets
+  later, nothing redone. **Slicing by line position per bucket would have
+  broken the pairing**, and re-slicing after the jobs ran would have meant
+  re-running them; caught in review before any job was submitted.
+- **`SEED` inert closes an objection to C10**: with `temperature=0` and the
+  seed unconsumed there is no sampling randomness in the pipeline, so every
+  measured token-id divergence is engine nondeterminism. Register, "C10
+  strengthened".
+- Subset jobs carry `--exclude=gpub073`; `analyze.py` reports the hosts
+  behind every spread and the within-host range, so node variance in the
+  subset interval is decomposable from the records.
 - **`summarize.py` now groups by job** and announces every cell measured in
   more than one job; speedups are within-job. Open item 1 closed. Verified on
   `results/a40`: nine cells listed as repeated, which is the replication that
@@ -104,14 +118,19 @@ Commands for the subsets, login node:
 ```bash
 module load cray-python/3.12.12
 cd /projects/bikd/dagraw2/Speculative_Ladder/repo && git pull
+python3 code/make_subsets.py --check    # the plan, nothing written
 python3 code/make_subsets.py            # writes sub1..sub4 for 2K, 8K, 32K
 SHARED=/projects/bikd/dagraw2/Speculative_Ladder
 D=/projects/bikd/$USER/Speculative_Ladder
+for s in 1 2 3 4; do ls -l $D/data/sub$s/; done        # three canonical names per directory
+sacctmgr show assoc user=$USER format=user,partition,maxjobs,maxsubmit   # can twelve queue?
 cd $SHARED/ladder/scripts
+# If twelve cannot queue at once, loop over buckets outermost (one bucket's
+# four subsets per batch) so each batch is internally comparable.
 for s in 1 2 3 4; do
   for b in 2K:50 8K:50 32K:25; do
     B=${b%%:*}; N=${b##*:}; mkdir -p $D/results/a40_sub$s
-    sbatch --export=ALL,LADDER_VENV=$SHARED/vllm_env_multiarch,LADDER_DATA=$D/data/sub$s,LADDER_OUT=$D/results/a40_sub$s,BUCKET=$B,LIMIT=$N,CONC=1 phase0.sh
+    sbatch --exclude=gpub073 --export=ALL,LADDER_VENV=$SHARED/vllm_env_multiarch,LADDER_DATA=$D/data/sub$s,LADDER_OUT=$D/results/a40_sub$s,BUCKET=$B,LIMIT=$N,CONC=1 phase0.sh
   done
 done
 python3 $SHARED/repo/code/analyze.py $D/results/a40_sub1 $D/results/a40_sub2 ...   # after they land

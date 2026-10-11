@@ -796,3 +796,31 @@ Consequences:
 - MagicDec's hardware-direction statement (lower inflection on higher
   FLOPS-to-bandwidth devices) cannot be tested on these three GPUs, since they
   do not vary in that ratio.
+
+---
+
+## C10 strengthened, 11 Oct 2026 (latest) — there is no sampling randomness in the pipeline
+
+Found while designing the prompt subsets, by reading `run_benchmark.py`
+rather than inferring it: `--seed` reaches only `SamplingParams(temperature=0.0,
+..., seed=args.seed)`. Under greedy decoding the sampler never draws, so the
+seed is never consumed. Nothing else in the harness is seeded, and nothing
+needs to be: prompt selection is the first `LIMIT` lines of the bucket file.
+
+Consequence for C10. Every token-id divergence the project has measured,
+the 12.7% and 19.0% sequence-agreement figures, the per-token 0.80% and
+0.65%, and eager against compiled disagreeing on the same seed, was produced
+by a pipeline with **no sampling randomness anywhere**. They are engine
+nondeterminism and nothing else: kernel scheduling, reduction order, batch
+composition, and the compiled against eager code paths. The objection "some
+of the divergence is the sampler" is closed, for free.
+
+This does not touch the restatement of C10 to its narrow form (the control
+still varies concurrency as well as the engine). It removes one alternative
+explanation from both forms.
+
+Second consequence, operational: a "different seed" run is not a repeat and
+not a new sample. It re-measures the same prompts, and any two such runs
+differ only by engine nondeterminism. The `SEED=5678` item in `TODO.md` is
+struck; prompt-sample variance comes from disjoint subsets
+(`notes/2026-10-11-a100-decision-tree.md`, section 3).
