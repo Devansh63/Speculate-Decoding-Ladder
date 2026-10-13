@@ -70,7 +70,285 @@ directory overwrites the first.
 
 ---
 
-## 11 Oct 2026 (latest) — decision tree committed; analysis tools; subsets
+## 13 Oct 2026 (latest) — Block 0 closed, harness v3, and the determinism floor
+
+Nine commits: `710f4f4` through `c409802`. The day's result is C21 — at fixed
+configuration the engine is bit-deterministic, which refutes C10's strong form
+and makes every speculative divergence attributable to speculation. Everything
+else here is the machinery that made that measurable.
+
+### Getting files onto Delta
+
+Every script below was written off-cluster and arrived the same way. Recorded
+because it is the step a replay needs first and it is not obvious.
+
+```bash
+# from the laptop
+ssh dagraw2@login.delta.ncsa.illinois.edu mkdir -p /projects/bikd/dagraw2/incoming
+scp *.sh *.py MANIFEST.md5 \
+  dagraw2@login.delta.ncsa.illinois.edu:/projects/bikd/dagraw2/incoming/
+
+# on Delta
+cd /projects/bikd/dagraw2/Speculative_Ladder/repo/new-research-path
+cp /projects/bikd/dagraw2/incoming/* .
+md5sum -c MANIFEST.md5        # eight OK lines, or do not run the file
+```
+
+**Do not stage to `/tmp`.** `/tmp` is local to each login node. Copying to
+`dt-login01`'s `/tmp` and then working from `dt-login02` loses the files.
+`/projects/bikd/dagraw2/incoming` is shared.
+
+`MANIFEST.md5` travels with the scripts and is checked on arrival. A truncated
+scp is silent otherwise.
+
+### Block 0: five tasks, all closed
+
+Driven by `new-research-path/run_block0.sh`, which deliberately has no
+"do everything" target — steps 2–4 produce output a person has to read, and
+steps 1 and 5 change the repo.
+
+```bash
+cd /projects/bikd/dagraw2/Speculative_Ladder/repo/new-research-path
+bash run_block0.sh check        # checksums + all four data paths reachable
+bash run_block0.sh analyse      # steps 2,3,4 -- READ ONLY
+bash run_block0.sh push-dry     # step 1 dry run
+DRYRUN=0 bash b0_01_push_a100.sh
+WRITE=1 bash b0_05_attribution_audit.sh
+```
+
+1. **`results/a100` pushed** (`8a188f2`) — 15 rows, 9 per-request files, six
+   gzipped logs. Job 22713396's log is included deliberately: `COMPLETED`, exit
+   `0:0`, 28:42 elapsed, **zero rows**, repeated
+   `cudaErrorNoKernelImageForDevice`. It is the cleanest example of the first
+   convention at the top of this file. Three separate review disagreements had
+   traced to this data living only in Sahil's tree.
+2. **Frozen prediction scored** (`c65cf36`) — **two** of four cells within 5%,
+   median absolute error 6.18%, all four errors optimistic. The pass/fail
+   pattern splits **by rung**: n-gram 2/2 within tolerance, DFlash 0/2. Does
+   not pass; formally ambiguous on failure, and the ambiguity is recorded
+   rather than resolved.
+3. **The 32K n-gram τ gap resolved** — 1.390 on A40 against 1.345 on A100. A
+   `token_ids` diff shows **21 of 25 sequences differ between the machines**,
+   per-token hazard 0.89%. Neither figure is wrong; τ is to be reported per
+   machine. 8 of the 21 diverge within the first 16 tokens, so divergence is
+   front-loaded — prefill numerics most likely differ and the first token
+   follows.
+4. **C19 corrected** (`c65cf36`, `notes/2026-10-13-c19-correction.md`) — see
+   below.
+5. **Attribution exception logged** (`59d8e2d`) — full-history audit found
+   **zero** commits attributed to an AI or bot and no trailers in any commit
+   body. 56 older commits use the author's GitHub noreply or gmail address,
+   both of which display as the author, so the standing constraint was never
+   violated. History is not rewritten.
+
+### C19: the pooled comparison was invalid, the figure stands
+
+The original note reported DFlash costing ~2.4 GiB of KV pool and flagged an
+unexplained within-rung drift that made the magnitude doubtful. A
+re-derivation pooling all 52 arms across 11 jobs gave a 6.1 GiB spread against
+a 2.6 GiB difference — apparently not separable.
+
+**That pooled comparison mixes a 48 GB A40 with a 40 GB A100**, so most of the
+"spread" is the difference between two cards. Paired within `(job, bucket,
+concurrency)` across 17 pairs:
+
+```bash
+python3 new-research-path/b0_04_kv_extract.py \
+  /projects/bikd/dagraw2/Speculative_Ladder/logs/phase0-*.out
+```
+
+DFlash costs **+2.42 to +2.54 GiB** at every concurrency up to 12, on both
+machines and all three buckets; n-gram costs 0.00–0.03. The drift cancels:
+job 22713173 at c=1/2/4 gives paired differences 2.47 / 2.38 / 2.51, because
+vLLM profiles peak memory with the configured `max_num_seqs` and that shifts
+every arm in a job together.
+
+**New:** the single c=32 pair shows DFlash costing **+4.01 GiB**, a 63% rise
+over the same job's c=1. One observation, but the direction is what the
+mechanism predicts — the head's weights are a fixed charge, its own KV scales
+with resident sequences. Consequence: admissible concurrency cannot be
+projected from the c=1 pool, so every high-batch estimate including the H200
+figure is an upper bound.
+
+Reframing: not a tax and not a third cost axis. **The drafter's weights are
+charged to the KV pool.** n-gram has no checkpoint and costs nothing, which is
+the control that confirms it. What is publishable is the consequence — a
+trained head surrenders roughly a fifth of the long-context concurrency
+ceiling, worse on the smaller card (−24% on the 40 GB A100 against −21% on the
+48 GB A40).
+
+### Harness v3, by anchor-based patch
+
+Three patchers in `new-research-path/`, each locating every edit by a unique
+anchor taken from the file itself, asserting it matches **exactly once**, and
+refusing to write anything if any anchor is missing or ambiguous.
+
+```bash
+S=/projects/bikd/dagraw2/Speculative_Ladder/ladder/scripts
+python3 new-research-path/b1_01_patch_harness_v3.py   $S/run_benchmark.py  --write
+python3 new-research-path/b1_02_patch_check_lossless.py $S/check_lossless.py --write
+python3 new-research-path/b1_03_patch_phase0.py       $S/phase0.sh         --write
+python3 -m py_compile $S/run_benchmark.v3.py $S/check_lossless.v3.py
+bash -n $S/phase0.v3.sh
+```
+
+**Why patchers and not replacement files.** Re-typing a 338-line file into a
+tool call is how content gets silently corrupted. A failed anchor is a loud
+stop naming the edit that failed, never a partial patch. The originals are
+never modified; each produces a `.v3` file beside it.
+
+Every v3 default reproduces v2 byte-for-byte, so re-running an existing cell
+under v3 reproduces the v2 row with more recorded alongside it. The `.v3`
+files are committed as **candidates** (`55cd0b9`, `10aaab6`) and are **not yet
+swapped in** — `run_benchmark.py`, `check_lossless.py` and `phase0.sh` on disk
+are still v2, and the replay block at the top of this file is correct as
+written until the swap.
+
+What v3 adds: the job id in the per-request file name; the speculative method
+read back off the engine config and asserted against `--rung`; the engine's
+resolved `max_num_seqs` and prefix-caching state recorded; and flags for
+temperature and the n-gram lookup window, which were hardcoded at
+`run_benchmark.py:242` and `:115–116`.
+
+**Settled a long-running mystery.** `request_timing()` already asks for
+`first_token_time`, `last_token_time` and `finished_time` (lines 188–198) and
+this build populates none of them, while `timing_seen` only counts requests
+carrying `latency_s`. So `per_request_timing` is *structurally* always 0 while
+`rec["timing"]` is still a truthy dict holding `arrival_time` alone. That is
+why checking the dict's presence and checking the row's counter disagree.
+
+### The `_j<jobid>` fix failed the first time — the day's most useful lesson
+
+Per-request files were overwriting each other when a cell ran twice. v3 added
+`_j<SLURM_JOB_ID>` to the file name.
+
+**Job 22875382 proved that insufficient.** `ARMS="off:0" REPEAT=2` runs the
+same cell twice *inside one job*, so both runs share the job id and the second
+still overwrote the first — one surviving file where there should have been
+two. The collision moved from "same cell, different jobs" to "same cell, same
+job, different repeat".
+
+The working version picks the **first free name** rather than a computed one:
+`_j<job>`, then `_j<job>_r2`, `_r3`. Nothing can overwrite anything, whatever
+the caller does or how often it is re-run. The row also records `perreq`,
+naming its own file, so the join is explicit rather than reconstructed from a
+pattern.
+
+`check_lossless.v3.py` treats **job plus repeat** as the realization id. Using
+the job alone collapses the realizations back into one dict entry — the same
+bug one layer up.
+
+### `check_lossless.py`'s name pattern could not match `_nopc`
+
+```python
+r"_n(?P<n>\d+)_s(?P<s>\d+)(?:_c(?P<c>\d+))?\.json$"
+```
+
+It requires `.json` immediately after the optional `_c<n>`. But
+`run_benchmark.py:220` appends `_nopc` to `run_id` under
+`--no-prefix-caching`, so such a file can never match, and line 80 just
+`continue`s past it. **Verified: zero `_nopc` files exist, so nothing was
+lost** — the prefix-caching control has simply never been run. The first time
+anyone ran it, the files would have been skipped in silence.
+
+v3's pattern accepts tag suffixes and an optional trailing `_j<job>_r<n>`,
+**warns loudly** listing any file it could not parse, and separates the
+same-config control from the cross-concurrency comparison. Validated on
+`results/a40`: 38 files, 0 warnings, every existing number unchanged, only the
+new labels and the hazard column added.
+
+### `phase0.v3.sh`: three knobs, two guards
+
+`MAXTOK` (was hardcoded 256), `ARMS` as `rung:k` pairs, `REPEAT`, plus
+`TEMP` / `PLMIN` / `PLMAX` / `LOOP` for v3-only axes. Defaults reproduce the
+same nine runs in the same order.
+
+Both guards refuse **up front**, not per arm, because `run()` ends in
+`|| echo FAILED` — an argparse rejection would be swallowed as a failed arm
+and the job would hold a GPU for its full walltime producing nothing, exactly
+as 22713396 did.
+
+- `REPEAT>1` against the v2 harness: refused. v2 has no job id in the file
+  name, so run 2 would overwrite run 1 and the repeat would buy nothing.
+- Any v3-only flag against v2: refused. The check greps the harness for
+  `HARNESS_VERSION = "v3`, not the filename.
+
+### The C10 control, and C21
+
+```bash
+V3=$S/run_benchmark.v3.py
+sbatch --export=ALL,BUCKET=2K,LIMIT=50,CONC=1,ARMS="off:0",REPEAT=2,\
+LADDER_RUN=$V3,LADDER_OUT=/projects/bikd/dagraw2/Speculative_Ladder/results/a40_c10 \
+  $S/phase0.v3.sh
+```
+
+Jobs **22875382** (gpub015, 17:54) and **22876140** (gpub036, 16:13). Three
+surviving realizations across two nodes.
+
+**150 of 150 sequences bit-identical. Per-token hazard 0.000%.** Zero events in
+12,800 token positions bounds the true hazard at about 0.023% (rule of three).
+
+The engine resolved `prefix_caching: True` — confirmed off the engine config,
+where all 47 earlier rows read `null` meaning only "flag not passed". The
+method assertion also worked, allowing `spec_method: None` for rung `off`.
+
+Timing: 32.5698 and 32.5696 on gpub015, 32.5703 and 32.5644 on gpub036 — a
+**0.018%** spread across two nodes. Note the A100 duplicate-pair ratio spreads
+were 0.05–0.23%, which is larger, so those were not pure node variance and
+something there is unaccounted for.
+
+Full reasoning in C21, `paper/claims.md`. **The gap that remains:** only the
+*baseline* has been shown reproducible. No speculative arm has been run twice
+at one configuration, so part of its divergence could be its own instability.
+One job closes it — `ARMS="ngram:5 dflash:7" REPEAT=2` at 2K c=1, ~30 min.
+
+### Accuracy, and the concurrency threat retired
+
+```bash
+source /projects/bikd/dagraw2/Speculative_Ladder/vllm_env_multiarch/bin/activate
+python3 new-research-path/b2_01_score_accuracy.py \
+  /projects/bikd/dagraw2/Speculative_Ladder/results/a40 --by-domain
+python3 new-research-path/b2_02_achieved_concurrency.py \
+  /projects/bikd/dagraw2/Speculative_Ladder/logs/phase0-*.out
+```
+
+**Accuracy is invariant.** At 8K, nine arms score identically (34.7%, n=49).
+Every difference elsewhere is one prompt, and the baseline differs from itself
+by one prompt across concurrency. Four of five domain-bucket cells perfectly
+flat. Extraction leans on confident patterns: 84.7% start with the letter,
+7.9% match "answer is X", 3.9% the loosest, 3.5% unparseable and never scored
+as wrong. C22.
+
+**Every arm reached its requested concurrency** — 54 arms checked against the
+engine's own `Running: N reqs`. `phase0.sh`'s warning never fired, because no
+bucket was asked for more than its capacity table allows. But sustained means
+run below peak (c=32 → mean 23.5) and **job 22569403 ran unlabelled at up to
+77 concurrent**, so `--exclude-job 22569403` belongs in any mixed-concurrency
+analysis.
+
+### Three mistakes, recorded
+
+- **"A c=32 row cannot have run at 32"** — wrong. That applied 32K
+  per-sequence KV arithmetic to a 2K cell, where `phase0.sh`'s own table says
+  ~70 fit.
+- **"The `_nopc` controls were silently skipped"** — wrong tense. Zero such
+  files exist; the bug was latent.
+- **A `--write` placed after a diff never runs when stdout is piped into
+  `head`.** This bit three times before all three patchers were reordered to
+  write first. Same SIGPIPE class as the `awk | ... || echo` bug in
+  `b0_05_attribution_audit.sh`, which printed two contradictory lines about the
+  attribution chain and is now fixed by capturing into a variable.
+
+### Costs, measured
+
+A 2K n=50 `off` arm is **393s of generation**, and two arms plus two model
+loads came to 17:54 — about **9 minutes per arm on an A40**, not the ~6
+estimated from A100 timings. A three-arm 8K job is 30–45 minutes. Earlier
+per-cell estimates derived from A100 wall clocks are roughly 1.5× low.
+
+---
+
+## 11 Oct 2026 — decision tree committed; analysis tools; subsets
 
 Still before any record from 22802261 or 22802262 was read.
 
