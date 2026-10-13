@@ -114,11 +114,62 @@ def main():
               f"{r.get('kv_tok', 0):>10} {r.get('ctx_tokens', 0):>7} "
               f"{r.get('maxconc', float('nan')):>8.2f}")
 
-    # ---- the only comparison that matters: spread WITHIN a rung vs BETWEEN
+    # ---- PAIRED WITHIN JOB. This is the comparison that is actually valid.
+    #
+    # v2 fix: the earlier version pooled every arm across every job and
+    # compared a rung's mean against 'off's mean. That mixes a 48 GB A40 with a
+    # 40 GB A100, so the "within-rung spread" was mostly the difference between
+    # two cards (6.1 GiB), and the real effect (2.4 GiB) was declared "not
+    # separable". Wrong answer from a valid-looking test.
+    #
+    # Within one job the machine, node, engine build and profiling pass are all
+    # held fixed, so off-minus-rung is a clean paired difference. vLLM profiles
+    # peak memory with the configured max_num_seqs, which shifts every arm in a
+    # job together -- common-mode, and it divides out of the pair.
+    print("\n=== paired within job (the valid comparison) ===")
+    jobs = defaultdict(dict)
+    for r in rows:
+        if "kv_gib" not in r:
+            continue
+        rid = r["run_id"]
+        # bucket and concurrency must match too: one job runs several cells
+        parts = rid.split("_")
+        bucket = parts[1] if len(parts) > 1 else "?"
+        conc = parts[-1] if parts[-1].startswith("c") else "c?"
+        jobs[(r["job"], bucket, conc)][rung_of(rid)] = (r["kv_gib"], r.get("maxconc"))
+
+    paired = defaultdict(list)
+    print(f"{'job':>9} {'bucket':>6} {'conc':>5} {'rung':>7} {'KV GiB':>8} "
+          f"{'off GiB':>8} {'cost':>7} {'ceiling':>16}")
+    for (job, bucket, conc), arms in sorted(jobs.items()):
+        if "off" not in arms:
+            continue
+        off_kv, off_mc = arms["off"]
+        for rung, (kv, mc) in sorted(arms.items()):
+            if rung == "off":
+                continue
+            cost = off_kv - kv
+            paired[rung].append(cost)
+            ceil = (f"{off_mc:.2f} -> {mc:.2f}"
+                    f" ({(mc / off_mc - 1) * 100:+.1f}%)") if off_mc and mc else "--"
+            print(f"{job:>9} {bucket:>6} {conc:>5} {rung:>7} {kv:>8.2f} "
+                  f"{off_kv:>8.2f} {cost:>+7.2f} {ceil:>16}")
+
+    if paired:
+        print(f"\n{'rung':>7} {'n pairs':>8} {'min':>7} {'max':>7} {'spread':>7} {'mean':>7}")
+        for rung, cs in sorted(paired.items()):
+            print(f"{rung:>7} {len(cs):>8} {min(cs):>+7.2f} {max(cs):>+7.2f} "
+                  f"{max(cs) - min(cs):>7.2f} {sum(cs) / len(cs):>+7.2f}")
+        print("\n  Read the PAIRED table, not the pooled one below. A paired")
+        print("  spread that is small against the mean means the cost is real;")
+        print("  the pooled spread below is dominated by card size and job age.")
+
+    # ---- pooled, kept only to show why it must not be used
     by_rung = defaultdict(list)
     for r in rows:
         if "kv_gib" in r:
             by_rung[rung_of(r["run_id"])].append(r["kv_gib"])
+    print("\n=== pooled across jobs (INVALID -- shown to document why) ===")
 
     print(f"\n{'rung':>10} {'n':>3} {'min GiB':>9} {'max GiB':>9} "
           f"{'spread':>8} {'mean':>8}")
