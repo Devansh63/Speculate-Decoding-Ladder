@@ -289,24 +289,25 @@ def main():
         sys.exit(2)
     print(f"all {len(EDITS) + 1} anchors matched exactly once")
 
-    diff = list(difflib.unified_diff(
-        src.splitlines(keepends=True), out.splitlines(keepends=True),
-        fromfile="run_benchmark.py (v2)", tofile="run_benchmark.v3.py", n=3))
-    sys.stdout.writelines(diff)
-    print(f"\n{len(src.splitlines())} -> {len(out.splitlines())} lines")
-
+    # Write BEFORE printing the diff: piping stdout into head closes the pipe
+    # mid-diff and everything after it is skipped silently.
     if a.write:
         dest = os.path.join(os.path.dirname(os.path.abspath(a.path)),
                             "run_benchmark.v3.py")
         with open(dest, "w") as f:
             f.write(out)
-        print(f"\nwrote {dest}")
+        print(f"wrote {dest}")
         print("The original is untouched. Before swapping it in, prove v3 is a "
               "no-op on\nan existing cell: run one 2K off arm with both files to "
               "the same outdir and\ncheck that throughput and token_ids match "
               "within the 0.2% node spread.")
     else:
-        print("\n(--write to produce run_benchmark.v3.py; nothing written)")
+        print("(--write to produce run_benchmark.v3.py; nothing written)")
+
+    print(f"{len(src.splitlines())} -> {len(out.splitlines())} lines; diff follows")
+    sys.stdout.writelines(difflib.unified_diff(
+        src.splitlines(keepends=True), out.splitlines(keepends=True),
+        fromfile="run_benchmark.py (v2)", tofile="run_benchmark.v3.py", n=3))
 
 
 if __name__ == "__main__":

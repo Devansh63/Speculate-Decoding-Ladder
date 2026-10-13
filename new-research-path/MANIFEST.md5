@@ -4,7 +4,8 @@ fe7ee1138ed0dfa21ce16dba6ea93a3f  b0_01_push_a100.sh
 7283ce9fc4cefe9d9e1dc9dab5c309b6  b0_02_score_prediction.py
 5acdc4e3618ae0378dbb9046ebcd61ba  b0_03_tau_diff.py
 f0e59962a513c0c72a667410b8189e9d  b0_04_kv_extract.py
-cb7871b79e9fb8d616796769808b8609  b1_01_patch_harness_v3.py
-d7d2111e8127005dd66a4d4fe7f6a985  b1_02_patch_check_lossless.py
+3d17cc6923c01dff7db69a0dd782b27e  b1_01_patch_harness_v3.py
+e5e5f13bb6c7b1fcd1e0762cd851ab30  b1_02_patch_check_lossless.py
+b6b217642988deb5d76cccdf07203560  b1_03_patch_phase0.py
 2bbd9e6ccd827c2f88a8f1e4ab8a5eb2  decompose.py
 6e1c95689b6173d8fef07d025355a8f1  run_block0.sh

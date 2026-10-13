@@ -305,21 +305,23 @@ def main():
         sys.exit(2)
     print(f"all {len(EDITS)} anchors matched exactly once")
 
-    sys.stdout.writelines(difflib.unified_diff(
-        src.splitlines(keepends=True), text.splitlines(keepends=True),
-        fromfile="check_lossless.py", tofile="check_lossless.v3.py", n=3))
-    print(f"\n{len(src.splitlines())} -> {len(text.splitlines())} lines")
-
+    # Write BEFORE printing the diff: piping stdout into head closes the pipe
+    # mid-diff and everything after it is skipped silently.
     if a.write:
         dest = os.path.join(os.path.dirname(os.path.abspath(a.path)),
                             "check_lossless.v3.py")
         open(dest, "w").write(text)
-        print(f"\nwrote {dest}")
-        print("Run it on results/a40 BEFORE swapping it in. It should now report "
-              "the\n_nopc files it used to skip -- if the WARNING list is empty "
-              "and the output\nis otherwise unchanged, the regex is doing its job.")
+        print(f"wrote {dest}")
+        print("Run it on results/a40 BEFORE swapping it in: the WARNING list "
+              "should be\nempty and every existing number unchanged, with only "
+              "the new labels and the\nhazard column added.")
     else:
-        print("\n(--write to produce check_lossless.v3.py; nothing written)")
+        print("(--write to produce check_lossless.v3.py; nothing written)")
+
+    print(f"{len(src.splitlines())} -> {len(text.splitlines())} lines; diff follows")
+    sys.stdout.writelines(difflib.unified_diff(
+        src.splitlines(keepends=True), text.splitlines(keepends=True),
+        fromfile="check_lossless.py", tofile="check_lossless.v3.py", n=3))
 
 
 if __name__ == "__main__":
