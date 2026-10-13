@@ -218,16 +218,37 @@ EDITS = [
             if "latency_s" in t or "loop_latency_s" in t:
                 timing_seen += 1'''),
 
-    ("5. job id in the per-request filename",
-     '    with open(os.path.join(args.outdir, f"perreq_{run_id}.json"), "w") as f:',
-     '''    # v3: the job id goes in the FILE NAME only, never in run_id. run_id is
-    # the cell key in results.jsonl and every analysis tool groups on it, so a
-    # job id there would make each run its own cell. The collision this fixes
-    # was only ever between files: a cell run twice wrote the same name twice,
-    # and the second run's token_ids replaced the first's.
+    ("5. per-request filename that can never overwrite",
+     '''    with open(os.path.join(args.outdir, "results.jsonl"), "a") as f:
+        f.write(json.dumps(record) + "\\n")
+    with open(os.path.join(args.outdir, f"perreq_{run_id}.json"), "w") as f:
+        json.dump(per_request, f)''',
+     '''    # The job id goes in the FILE NAME only, never in run_id: run_id is the
+    # cell key in results.jsonl and every analysis tool groups on it, so a job
+    # id there would make each run its own cell.
+    #
+    # And the job id ALONE IS NOT ENOUGH. Two runs of the same cell inside one
+    # job share it -- which is exactly what a REPEAT=2 control does, and job
+    # 22875382 proved it: two 2K off runs, one surviving file. So pick the
+    # first free name instead of a computed one. Nothing can overwrite anything
+    # here, whatever the caller does or how often it is re-run.
     _job = os.environ.get("SLURM_JOB_ID", "nojob")
-    _perreq = f"perreq_{run_id}_j{_job}.json"
-    with open(os.path.join(args.outdir, _perreq), "w") as f:'''),
+    _base = f"perreq_{run_id}_j{_job}"
+    _perreq, _rep = f"{_base}.json", 1
+    while os.path.exists(os.path.join(args.outdir, _perreq)):
+        _rep += 1
+        _perreq = f"{_base}_r{_rep}.json"
+    if _rep > 1:
+        print(f"[{run_id}] per-request file existed; writing {_perreq}",
+              flush=True)
+    # Name the file in the row, so the join from a row to its per-request
+    # records is explicit instead of reconstructed from a pattern.
+    record["perreq"] = _perreq
+
+    with open(os.path.join(args.outdir, "results.jsonl"), "a") as f:
+        f.write(json.dumps(record) + "\\n")
+    with open(os.path.join(args.outdir, _perreq), "w") as f:
+        json.dump(per_request, f)'''),
 ]
 
 # Suffix run_id when a v3 knob leaves its v2 default, so new-knob runs cannot

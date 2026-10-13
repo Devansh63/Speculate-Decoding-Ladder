@@ -78,3 +78,36 @@ Coverage falls with k (0.308 → 0.260 → 0.195) while τ_cond rises (1.670 →
 → 3.073), and the product favours k=7. If this survives re-measurement on a
 non-excluded node, every n-gram number in the paper is understated and the
 frozen prediction tested a k that was not the rung's best.
+
+**12. Only the baseline has been shown reproducible.** C21 establishes that two
+`off` runs at one configuration are bit-identical. No speculative arm has been
+run twice at one configuration, so the possibility that a speculative arm is
+itself unstable run-to-run is open, and with it the possibility that part of
+its measured divergence from the baseline is its own noise. One job closes it:
+`ARMS="ngram:5 dflash:7" REPEAT=2` at 2K c=1.
+
+**13. The determinism result is scoped to 2K, c=1, A40, prefix caching on.**
+Determinism at c=1 should hold at longer buckets because nothing batches, and
+caching-on is plausibly the reason it holds at all, but neither is measured.
+Any claim that the engine is deterministic *in general* overreaches this data.
+
+**14. `check_lossless.py`'s verdict block is stale.** The control and main
+sections were updated on 13 Oct to separate same-config from cross-concurrency
+pairs and to report the per-token hazard, but the closing VERDICT paragraph was
+not. On the C10 control directory it printed "Both rates are similar, which is
+consistent with a common cause in the engine" while comparing 100% against
+`nan%`. It assumes the pre-C21 framing and must be rewritten to compare against
+the same-config floor. Until then, ignore that paragraph.
+
+**15. Per-cell cost estimates in the plan are too low.** Each 2K n=50 `off` arm
+took 393s of generation, and two arms plus two model loads came to 17:54 of
+wall clock — so roughly 9 minutes per arm on an A40, not the ~6 estimated from
+A100 timings. A three-arm 8K job is 30–45 minutes. Block 3 needs rebudgeting
+from A40 measurements rather than A100 ones.
+
+**16. Accuracy differs by bucket in a direction difficulty cannot explain.**
+32K scores 50.0% where 8K scores 34.7% on the same model and prompt style. A
+longer context making the task easier is implausible; this is the
+bucket-document-overlap confound (threat 3) appearing in task accuracy, and it
+strengthens the case for per-domain subset runs since domain composition
+differs by bucket.

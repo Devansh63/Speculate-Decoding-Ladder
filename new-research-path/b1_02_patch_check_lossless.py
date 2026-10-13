@@ -72,8 +72,8 @@ EDITS = [
 NAME = re.compile(
     r"^perreq_(?P<rung>[a-z0-9]+)_(?P<bucket>[^_]+)_k(?P<k>\\d+)"
     r"_n(?P<n>\\d+)_s(?P<s>\\d+)(?:_c(?P<c>\\d+))?"
-    r"(?P<tags>(?:_(?!j(?:\\d|nojob))[A-Za-z][A-Za-z0-9-]*)*)"
-    r"(?:_j(?P<job>\\d+|nojob))?\\.json$"
+    r"(?P<tags>(?:_(?!j(?:\\d|nojob)|r\\d)[A-Za-z][A-Za-z0-9-]*)*)"
+    r"(?:_j(?P<job>\\d+|nojob))?(?:_r(?P<rep>\\d+))?\\.json$"
 )'''),
 
     ("B. tags in the outer key, job in the inner key",
@@ -102,9 +102,14 @@ NAME = re.compile(
             skipped.append(name)
             continue
         g = m.groupdict()
+        # Realization id is job plus repeat. Two runs of one cell inside a
+        # single job share the job id, so job alone collapses them back into
+        # one entry -- which is the bug this whole change exists to stop.
+        realization = (g.get("job") or "") + \\
+                      (("r" + g["rep"]) if g.get("rep") else "")
         tree[(g["bucket"], int(g["n"]), int(g["s"]), g.get("tags") or "")][
             (g["rung"], int(g["k"]), int(g["c"] or 0),
-             g.get("job") or "")] = os.path.join(d, name)
+             realization)] = os.path.join(d, name)
 
     if skipped:
         # Loud, because a silent skip here is how a "_nopc" control would have

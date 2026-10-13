@@ -51,8 +51,18 @@ echo "--- most recent 20, newest first ---"
 git log -20 --format='%h %ad %an <%ae> | %s' --date=short
 echo
 echo "--- first commit NOT using dagraw2@illinois.edu, walking back from HEAD ---"
-git log --format='%h %ae %s' | awk '$2!="dagraw2@illinois.edu"{print "  "$0; exit}' \
-  || echo "  every commit conforms"
+# Captured into a variable rather than piped into a `||`. awk exits on the
+# first match, git log then writes to a closed pipe and the pipeline returns
+# 141, so the old form printed the match AND "every commit conforms" -- two
+# contradictory lines from one check.
+FIRSTBAD=$(git log --format='%h %ae %s' \
+           | awk '$2!="dagraw2@illinois.edu"{print; exit}')
+if [ -n "$FIRSTBAD" ]; then
+  echo "  $FIRSTBAD"
+  echo "  (everything newer than that commit conforms)"
+else
+  echo "  every commit conforms"
+fi
 
 echo
 echo "== 5. recommendation =="

@@ -1,0 +1,66 @@
+
+      job                               run_id  req  max   mean  wait  samples                verdict
+ 22569403             dflash_2K_k15_n100_s1234 None   53  44.75    76        8        no _c in run_id
+ 22569403              dflash_2K_k7_n100_s1234 None   56  47.57    76        7        no _c in run_id
+ 22598608            dflash_2K_k7_n50_s1234_c1    1    1   1.00    49       21                reached
+ 22598608           dflash_2K_k7_n50_s1234_c32   32   32  23.50    26        4                reached
+ 22598608            dflash_2K_k7_n50_s1234_c8    8    8   7.80    42        5                reached
+ 22757102             dflash_2K_k7_n5_s1234_c1    1    1   1.00     4        2                reached
+ 22757104             dflash_2K_k7_n5_s1234_c1    1    1   1.00     1        1                reached
+ 22757105             dflash_2K_k7_n5_s1234_c1    1    1   1.00     4        2                reached
+ 22713173           dflash_32K_k7_n25_s1234_c1    1    1   1.00    24       50                reached
+ 22802262           dflash_32K_k7_n25_s1234_c1    1    1   1.00    23       26                reached
+ 22802309           dflash_32K_k7_n25_s1234_c1    1    1   1.00    23       26                reached
+ 22713173           dflash_32K_k7_n25_s1234_c2    2    2   1.89    23       37                reached
+ 22713173           dflash_32K_k7_n25_s1234_c4    4    4   3.64    21       33                reached
+ 22685911            dflash_8K_k7_n50_s1234_c1    1    1   0.97    48       37                reached
+ 22802261            dflash_8K_k7_n50_s1234_c1    1    1   1.00    48       19                reached
+ 22802308            dflash_8K_k7_n50_s1234_c1    1    1   1.00    48       19                reached
+ 22685911           dflash_8K_k7_n50_s1234_c12   12   12  11.33    46       12                reached
+ 22685911            dflash_8K_k7_n50_s1234_c4    4    4   4.00    46       16                reached
+ 22569403               ngram_2K_k5_n100_s1234 None   77  55.33    86        9        no _c in run_id
+ 22598608             ngram_2K_k5_n50_s1234_c1    1    1   1.00    48       35                reached
+ 22598608            ngram_2K_k5_n50_s1234_c32   32   32  24.40    36        5                reached
+ 22598608             ngram_2K_k5_n50_s1234_c8    8    8   8.00    42        7                reached
+ 22757102              ngram_2K_k5_n5_s1234_c1    1    1   0.75     4        4                reached
+ 22757104              ngram_2K_k5_n5_s1234_c1    1    1   1.00     3        2                reached
+ 22757105              ngram_2K_k5_n5_s1234_c1    1    1   0.75     4        4                reached
+ 22713173            ngram_32K_k5_n25_s1234_c1    1    1   1.00    24       26                reached
+ 22802262            ngram_32K_k5_n25_s1234_c1    1    1   1.00    23       19                reached
+ 22802309            ngram_32K_k5_n25_s1234_c1    1    1   1.00    23       19                reached
+ 22713173            ngram_32K_k5_n25_s1234_c2    2    2   1.97    23       32                reached
+ 22713173            ngram_32K_k5_n25_s1234_c4    4    4   3.72    21       29                reached
+ 22685911             ngram_8K_k5_n50_s1234_c1    1    1   1.00    49       41                reached
+ 22802261             ngram_8K_k5_n50_s1234_c1    1    1   1.00    49       20                reached
+ 22802308             ngram_8K_k5_n50_s1234_c1    1    1   1.00    49       20                reached
+ 22685911            ngram_8K_k5_n50_s1234_c12   12   12  11.00    46       13                reached
+ 22685911             ngram_8K_k5_n50_s1234_c4    4    4   3.94    46       17                reached
+ 22569403                 off_2K_k0_n100_s1234 None   77  51.67    85        6        no _c in run_id
+ 22598608               off_2K_k0_n50_s1234_c1    1    1   1.00    49       40                reached
+ 22875382               off_2K_k0_n50_s1234_c1    1    1   1.00    49       40                reached
+ 22875382               off_2K_k0_n50_s1234_c1    1    1   1.00    49       40                reached
+ 22876140               off_2K_k0_n50_s1234_c1    1    1   1.00    49       40                reached
+ 22876140               off_2K_k0_n50_s1234_c1    1    1   1.00    49       40                reached
+ 22598608              off_2K_k0_n50_s1234_c32   32   32  23.25    35        4                reached
+ 22598608               off_2K_k0_n50_s1234_c8    8    8   7.00    42        8                reached
+ 22757102                off_2K_k0_n5_s1234_c1    1    1   1.00     4        5                reached
+ 22757104                off_2K_k0_n5_s1234_c1    1    1   1.00     4        2                reached
+ 22757105                off_2K_k0_n5_s1234_c1    1    1   1.00     4        5                reached
+ 22713173              off_32K_k0_n25_s1234_c1    1    1   1.00    23       26                reached
+ 22802262              off_32K_k0_n25_s1234_c1    1    1   1.00    23       19                reached
+ 22802309              off_32K_k0_n25_s1234_c1    1    1   1.00    23       18                reached
+ 22713173              off_32K_k0_n25_s1234_c2    2    2   1.91    23       32                reached
+ 22713173              off_32K_k0_n25_s1234_c4    4    4   3.66    21       29                reached
+ 22685911               off_8K_k0_n50_s1234_c1    1    1   1.00    49       47                reached
+ 22802261               off_8K_k0_n50_s1234_c1    1    1   1.00    49       21                reached
+ 22802308               off_8K_k0_n50_s1234_c1    1    1   1.00    49       21                reached
+ 22685911              off_8K_k0_n50_s1234_c12   12   12  10.46    45       13                reached
+ 22685911               off_8K_k0_n50_s1234_c4    4    4   3.78    46       18                reached
+
+56 arm(s) parsed.
+Every arm with an explicit concurrency reached it at least once.
+
+Note: 'max' is the peak of a ~1 Hz sample, so it is a lower bound on what
+was momentarily resident; 'mean' is the better figure for a sustained rate.
+'wait' is the peak queue depth -- a large wait beside a small max is the
+signature of asking for more concurrency than the KV cache can hold.

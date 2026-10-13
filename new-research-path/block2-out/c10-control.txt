@@ -1,0 +1,24 @@
+======================================================================
+CONTROL: is the no-speculation baseline reproducible across batching?
+Same prompts, same seed, no speculation. Any disagreement here is
+engine non-determinism and has nothing to do with speculation.
+======================================================================
+
+2K n=50 seed=1234
+  SAME-CONFIG c=1    job 22875382 vs 22876140: 50/50 identical (100%)   hazard 0.000%/tok   lengths equal on 50/50
+  SAME-CONFIG c=1    job 22875382 vs 22876140r2: 50/50 identical (100%)   hazard 0.000%/tok   lengths equal on 50/50
+  SAME-CONFIG c=1    job 22876140 vs 22876140r2: 50/50 identical (100%)   hazard 0.000%/tok   lengths equal on 50/50
+
+======================================================================
+MAIN: speculative arms against the baseline at matching concurrency
+======================================================================
+
+======================================================================
+VERDICT
+======================================================================
+baseline vs baseline : 150/150 identical (100%)
+speculative vs base  : 0/0 identical (nan%)
+
+Both rates are similar, which is consistent with a common cause
+in the engine rather than in speculation. Store full token ids
+and report per token agreement before making any claim.

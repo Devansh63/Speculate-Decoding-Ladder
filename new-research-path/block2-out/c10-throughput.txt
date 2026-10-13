@@ -1,0 +1,10 @@
+
+=== a40_c10 ===
+bucket    rung   k   c  mtok    n       job     node    tok/s  speedup     cov  tau_c  tau_e      R  pair
+    2K     off   0   1   256   50  22875382  gpub015    32.57   1.0000  0.000   1.000  1.000 1.0000   job
+    2K     off   0   1   256   50  22875382  gpub015    32.57   1.0000  0.000   1.000  1.000 1.0000   job
+    2K     off   0   1   256   50  22876140  gpub036    32.57   1.0000  0.000   1.000  1.000 1.0000   job
+    2K     off   0   1   256   50  22876140  gpub036    32.56   0.9998  0.000   1.000  1.000 1.0002   job
+
+  GPUs: NVIDIA A40
+  harness: v3-2026-10-13

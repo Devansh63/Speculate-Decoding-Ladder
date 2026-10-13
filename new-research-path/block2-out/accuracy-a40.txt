@@ -1,0 +1,259 @@
+dataset: 503 records with an answer key
+tokenizer: /work/nvme/bikd/dagraw2/Speculative_Ladder/hf/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218
+
+bucket                      arm       job  scored     acc  unparsed  no-tok  no-key
+    2K         2K/dflash_k15_c0                 0      --         0     100       0
+    2K          2K/dflash_k1_c1                47   34.0%         3       0       0
+    2K          2K/dflash_k2_c1                47   36.2%         3       0       0
+    2K          2K/dflash_k7_c0                 0      --         0     100       0
+    2K          2K/dflash_k7_c1                47   36.2%         3       0       0
+    2K         2K/dflash_k7_c32                 0      --         0      50       0
+    2K          2K/dflash_k7_c8                 0      --         0      50       0
+    2K           2K/ngram_k5_c0                 0      --         0     100       0
+    2K           2K/ngram_k5_c1                47   34.0%         3       0       0
+    2K          2K/ngram_k5_c32                 0      --         0      50       0
+    2K           2K/ngram_k5_c8                 0      --         0      50       0
+    2K             2K/off_k0_c0                 0      --         0     100       0
+    2K             2K/off_k0_c1                47   34.0%         3       0       0
+    2K            2K/off_k0_c32                 0      --         0      50       0
+    2K             2K/off_k0_c8                 0      --         0      50       0
+   32K         32K/dflash_k1_c1                24   50.0%         1       0       0
+   32K         32K/dflash_k2_c1                24   54.2%         1       0       0
+   32K         32K/dflash_k4_c1                24   54.2%         1       0       0
+   32K         32K/dflash_k7_c1                24   50.0%         1       0       0
+   32K         32K/dflash_k7_c2                24   50.0%         1       0       0
+   32K         32K/dflash_k7_c4                24   50.0%         1       0       0
+   32K          32K/ngram_k5_c1                24   50.0%         1       0       0
+   32K          32K/ngram_k5_c2                24   50.0%         1       0       0
+   32K          32K/ngram_k5_c4                24   50.0%         1       0       0
+   32K            32K/off_k0_c1                24   50.0%         1       0       0
+   32K            32K/off_k0_c2                24   50.0%         1       0       0
+   32K            32K/off_k0_c4                24   54.2%         1       0       0
+    8K          8K/dflash_k1_c1                49   34.7%         1       0       0
+    8K          8K/dflash_k2_c1                49   34.7%         1       0       0
+    8K          8K/dflash_k7_c1                49   34.7%         1       0       0
+    8K         8K/dflash_k7_c12                49   34.7%         1       0       0
+    8K          8K/dflash_k7_c4                49   34.7%         1       0       0
+    8K           8K/ngram_k5_c1                49   34.7%         1       0       0
+    8K          8K/ngram_k5_c12                49   34.7%         1       0       0
+    8K           8K/ngram_k5_c4                49   34.7%         1       0       0
+    8K             8K/off_k0_c1                49   34.7%         1       0       0
+    8K            8K/off_k0_c12                49   34.7%         1       0       0
+    8K             8K/off_k0_c4                49   34.7%         1       0       0
+
+extraction tiers (how much interpretation each number rests on):
+  starts-with-letter:   932  (84.7%)
+           answer-is:    87  (7.9%)
+    first-standalone:    43  (3.9%)
+         unparseable:    38  (3.5%)
+
+difference against the 'off' arm, same bucket and concurrency:
+  no (speculative, off) pair in the same bucket/concurrency/job
+
+  NOT a significance test. Speculative decoding is supposed to be
+  lossless, so these differences should be indistinguishable from the
+  baseline's disagreement with ITSELF under the same configuration --
+  a floor this repository does not yet have. Do not call any gap
+  above meaningful until the same-config control exists.
+
+======================================================================
+accuracy by LongBench-v2 domain
+======================================================================
+
+Code Repository Understanding
+  2K  n=3
+                 2K/dflash_k1_c1:  66.7%
+                 2K/dflash_k2_c1:  66.7%
+                 2K/dflash_k7_c1:  66.7%
+                  2K/ngram_k5_c1:  66.7%
+                    2K/off_k0_c1:  66.7%
+  32K  n=2
+                32K/dflash_k1_c1: 100.0%
+                32K/dflash_k2_c1: 100.0%
+                32K/dflash_k4_c1: 100.0%
+                32K/dflash_k7_c1: 100.0%
+                32K/dflash_k7_c2: 100.0%
+                32K/dflash_k7_c4: 100.0%
+                 32K/ngram_k5_c1: 100.0%
+                 32K/ngram_k5_c2: 100.0%
+                 32K/ngram_k5_c4: 100.0%
+                   32K/off_k0_c1: 100.0%
+                   32K/off_k0_c2: 100.0%
+                   32K/off_k0_c4: 100.0%
+  8K  n=3
+                 8K/dflash_k1_c1:  66.7%
+                 8K/dflash_k2_c1:  66.7%
+                 8K/dflash_k7_c1:  66.7%
+                8K/dflash_k7_c12:  66.7%
+                 8K/dflash_k7_c4:  66.7%
+                  8K/ngram_k5_c1:  66.7%
+                 8K/ngram_k5_c12:  66.7%
+                  8K/ngram_k5_c4:  66.7%
+                    8K/off_k0_c1:  66.7%
+                   8K/off_k0_c12:  66.7%
+                    8K/off_k0_c4:  66.7%
+
+Long In-context Learning
+  2K  n=8   <- spread 12.5 pts = 1 prompt(s)
+                 2K/dflash_k1_c1:  50.0%
+                 2K/dflash_k2_c1:  62.5%
+                 2K/dflash_k7_c1:  62.5%
+                  2K/ngram_k5_c1:  50.0%
+                    2K/off_k0_c1:  50.0%
+  32K  n=5   <- spread 20.0 pts = 1 prompt(s)
+                32K/dflash_k1_c1:  60.0%
+                32K/dflash_k2_c1:  80.0%
+                32K/dflash_k4_c1:  80.0%
+                32K/dflash_k7_c1:  60.0%
+                32K/dflash_k7_c2:  60.0%
+                32K/dflash_k7_c4:  60.0%
+                 32K/ngram_k5_c1:  60.0%
+                 32K/ngram_k5_c2:  60.0%
+                 32K/ngram_k5_c4:  60.0%
+                   32K/off_k0_c1:  60.0%
+                   32K/off_k0_c2:  60.0%
+                   32K/off_k0_c4:  80.0%
+  8K  n=8
+                 8K/dflash_k1_c1:  37.5%
+                 8K/dflash_k2_c1:  37.5%
+                 8K/dflash_k7_c1:  37.5%
+                8K/dflash_k7_c12:  37.5%
+                 8K/dflash_k7_c4:  37.5%
+                  8K/ngram_k5_c1:  37.5%
+                 8K/ngram_k5_c12:  37.5%
+                  8K/ngram_k5_c4:  37.5%
+                    8K/off_k0_c1:  37.5%
+                   8K/off_k0_c12:  37.5%
+                    8K/off_k0_c4:  37.5%
+
+Long Structured Data Understanding
+  2K  n=4
+                 2K/dflash_k1_c1:  25.0%
+                 2K/dflash_k2_c1:  25.0%
+                 2K/dflash_k7_c1:  25.0%
+                  2K/ngram_k5_c1:  25.0%
+                    2K/off_k0_c1:  25.0%
+  32K  n=1
+                32K/dflash_k1_c1: 100.0%
+                32K/dflash_k2_c1: 100.0%
+                32K/dflash_k4_c1: 100.0%
+                32K/dflash_k7_c1: 100.0%
+                32K/dflash_k7_c2: 100.0%
+                32K/dflash_k7_c4: 100.0%
+                 32K/ngram_k5_c1: 100.0%
+                 32K/ngram_k5_c2: 100.0%
+                 32K/ngram_k5_c4: 100.0%
+                   32K/off_k0_c1: 100.0%
+                   32K/off_k0_c2: 100.0%
+                   32K/off_k0_c4: 100.0%
+  8K  n=4
+                 8K/dflash_k1_c1:  25.0%
+                 8K/dflash_k2_c1:  25.0%
+                 8K/dflash_k7_c1:  25.0%
+                8K/dflash_k7_c12:  25.0%
+                 8K/dflash_k7_c4:  25.0%
+                  8K/ngram_k5_c1:  25.0%
+                 8K/ngram_k5_c12:  25.0%
+                  8K/ngram_k5_c4:  25.0%
+                    8K/off_k0_c1:  25.0%
+                   8K/off_k0_c12:  25.0%
+                    8K/off_k0_c4:  25.0%
+
+Long-dialogue History Understanding
+  32K  n=1
+                32K/dflash_k1_c1: 100.0%
+                32K/dflash_k2_c1: 100.0%
+                32K/dflash_k4_c1: 100.0%
+                32K/dflash_k7_c1: 100.0%
+                32K/dflash_k7_c2: 100.0%
+                32K/dflash_k7_c4: 100.0%
+                 32K/ngram_k5_c1: 100.0%
+                 32K/ngram_k5_c2: 100.0%
+                 32K/ngram_k5_c4: 100.0%
+                   32K/off_k0_c1: 100.0%
+                   32K/off_k0_c2: 100.0%
+                   32K/off_k0_c4: 100.0%
+  8K  n=2
+                 8K/dflash_k1_c1:   0.0%
+                 8K/dflash_k2_c1:   0.0%
+                 8K/dflash_k7_c1:   0.0%
+                8K/dflash_k7_c12:   0.0%
+                 8K/dflash_k7_c4:   0.0%
+                  8K/ngram_k5_c1:   0.0%
+                 8K/ngram_k5_c12:   0.0%
+                  8K/ngram_k5_c4:   0.0%
+                    8K/off_k0_c1:   0.0%
+                   8K/off_k0_c12:   0.0%
+                    8K/off_k0_c4:   0.0%
+
+Multi-Document QA
+  2K  n=14
+                 2K/dflash_k1_c1:  28.6%
+                 2K/dflash_k2_c1:  28.6%
+                 2K/dflash_k7_c1:  28.6%
+                  2K/ngram_k5_c1:  28.6%
+                    2K/off_k0_c1:  28.6%
+  32K  n=9
+                32K/dflash_k1_c1:  33.3%
+                32K/dflash_k2_c1:  33.3%
+                32K/dflash_k4_c1:  33.3%
+                32K/dflash_k7_c1:  33.3%
+                32K/dflash_k7_c2:  33.3%
+                32K/dflash_k7_c4:  33.3%
+                 32K/ngram_k5_c1:  33.3%
+                 32K/ngram_k5_c2:  33.3%
+                 32K/ngram_k5_c4:  33.3%
+                   32K/off_k0_c1:  33.3%
+                   32K/off_k0_c2:  33.3%
+                   32K/off_k0_c4:  33.3%
+  8K  n=14
+                 8K/dflash_k1_c1:  35.7%
+                 8K/dflash_k2_c1:  35.7%
+                 8K/dflash_k7_c1:  35.7%
+                8K/dflash_k7_c12:  35.7%
+                 8K/dflash_k7_c4:  35.7%
+                  8K/ngram_k5_c1:  35.7%
+                 8K/ngram_k5_c12:  35.7%
+                  8K/ngram_k5_c4:  35.7%
+                    8K/off_k0_c1:  35.7%
+                   8K/off_k0_c12:  35.7%
+                    8K/off_k0_c4:  35.7%
+
+Single-Document QA
+  2K  n=18
+                 2K/dflash_k1_c1:  27.8%
+                 2K/dflash_k2_c1:  27.8%
+                 2K/dflash_k7_c1:  27.8%
+                  2K/ngram_k5_c1:  27.8%
+                    2K/off_k0_c1:  27.8%
+  32K  n=6
+                32K/dflash_k1_c1:  33.3%
+                32K/dflash_k2_c1:  33.3%
+                32K/dflash_k4_c1:  33.3%
+                32K/dflash_k7_c1:  33.3%
+                32K/dflash_k7_c2:  33.3%
+                32K/dflash_k7_c4:  33.3%
+                 32K/ngram_k5_c1:  33.3%
+                 32K/ngram_k5_c2:  33.3%
+                 32K/ngram_k5_c4:  33.3%
+                   32K/off_k0_c1:  33.3%
+                   32K/off_k0_c2:  33.3%
+                   32K/off_k0_c4:  33.3%
+  8K  n=18
+                 8K/dflash_k1_c1:  33.3%
+                 8K/dflash_k2_c1:  33.3%
+                 8K/dflash_k7_c1:  33.3%
+                8K/dflash_k7_c12:  33.3%
+                 8K/dflash_k7_c4:  33.3%
+                  8K/ngram_k5_c1:  33.3%
+                 8K/ngram_k5_c12:  33.3%
+                  8K/ngram_k5_c4:  33.3%
+                    8K/off_k0_c1:  33.3%
+                   8K/off_k0_c12:  33.3%
+                    8K/off_k0_c4:  33.3%
+
+  Grouped by (bucket, n): only arms covering the same documents
+  are comparable. Pooling buckets makes a bucket difference look
+  like a rung effect. Counts are small, so a one-prompt spread is
+  a lead for a per-domain run, not a result -- and it needs the
+  same-config floor before it means anything at all.
