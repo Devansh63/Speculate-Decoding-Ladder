@@ -960,3 +960,156 @@ Three consequences, all in `notes/2026-10-11-memory-tax-and-remaining-axes.md`:
 direction that flatters a grid (~182,000 tokens and ~5 concurrent at 32K on
 A40, against 160,912 and 4.76 measured). Corrected there to the measured values,
 with the rung-dependent row added.
+
+### Frozen prediction scored, 13 Oct 2026
+
+Scored from records. Measured values are the mean over all realizations of each
+cell at concurrency 1 in `results/a100` (harness `v2-2026-10-05`), paired to an
+`off` baseline from the same job.
+
+| cell | predicted | measured | rel. error | implied R | machine factor | Δτ_eff vs A40 |
+|---|---|---|---|---|---|---|
+| 8K n-gram k=5 | 1.09 | 1.0788 | −1.03% | 1.2022 | 1.0734 | +1.01% |
+| 8K DFlash k=7 | 1.20 | 1.1054 | −7.89% | 1.7664 | 1.1440 | +0.28% |
+| 32K n-gram k=5 | 1.02 | 0.9745 | −4.46% | 1.3804 | 1.0700 | −3.23% |
+| 32K DFlash k=7 | 0.78 | 0.6432 | −17.53% | 2.2894 | 1.2963 | +0.93% |
+
+Realizations (every cell ran twice, on different nodes):
+
+| cell | job / node | speedup | R |
+|---|---|---|---|
+| 8K n-gram k=5 | 22802261 / gpua008 | 1.0780 | 1.2031 |
+| 8K n-gram k=5 | 22802308 / gpua070 | 1.0796 | 1.2013 |
+| 8K DFlash k=7 | 22802261 / gpua008 | 1.1066 | 1.7644 |
+| 8K DFlash k=7 | 22802308 / gpua070 | 1.1041 | 1.7684 |
+| 32K n-gram k=5 | 22802262 / gpua008 | 0.9742 | 1.3807 |
+| 32K n-gram k=5 | 22802309 / gpua087 | 0.9747 | 1.3800 |
+| 32K DFlash k=7 | 22802262 / gpua008 | 0.6437 | 2.2877 |
+| 32K DFlash k=7 | 22802309 / gpua087 | 0.6428 | 2.2910 |
+
+Cross-node spread on the ratios is 0.05%–0.23%, so every miss below is one to
+two orders of magnitude larger than the timing noise.
+
+**Cells within the 5% tolerance: 2 of 4. Median absolute relative error: 6.18%.**
+
+**Verdict: does not pass. Formally ambiguous on failure.**
+
+- The pass limb required *every* cell within 5%. Two exceeded it. Not a pass.
+- The fail limb required median absolute error above 10% — it is 6.18%, so not
+  by that limb — **or** "the 32K ordering does not reproduce".
+- That phrase admits two readings and they disagree. **Relative order** (DFlash
+  below n-gram) reproduced: 0.6432 against 0.9745. **Break-even side** (DFlash
+  below 1.0 *and* n-gram above 1.0) failed: n-gram landed at 0.9745.
+
+Recorded as **not passed, fail-leaning**, with the ambiguity named rather than
+resolved. External review correction #3 closed one pass/fail gap on 11 Oct and
+left this one. The wording must be fixed before the next prediction is frozen,
+not after it is scored.
+
+**The pattern splits by rung, not by bucket.** n-gram 2/2 within tolerance
+(−1.03%, −4.46%); DFlash 0/2 (−7.89%, −17.53%). All four errors are negative:
+every prediction was optimistic. That is bias, not noise, and it is the
+rung-dependent machine factor appearing in the scoreboard.
+
+**What the failure teaches, against the pre-registered diagnostic list.** The
+11 Oct entry named three candidate explanations in order of testability:
+context length (pointing at `R_draft`), coverage (a factor differing between
+rungs at long context but not short), and memory capacity. The second is what
+happened, and C20 below measures the first as its mechanism. The capacity confound is
+dead on records: the engine logs report KV cache usage of 7.9% at 8K and 30.7%
+at 32K at concurrency 1, nowhere near the ceiling.
+
+**One parameter caveat that limits this entire scoreboard.** The machine factor
+1.054 was fitted at 2K on job 22757104, which ran `LIMIT=5`. The prediction's
+single parameter was estimated from five prompts and then applied to cells of
+n=50 and n=25. A100 2K at n=50 is therefore not a gap in a table — it is the
+only direct test of whether the parameter was ever estimated at all.
+
+### C20, 13 Oct 2026 — the machine factor is not a machine property
+
+The 11 Oct prediction assumed a single scalar machine factor relating A40 `R`
+to A100 `R`. Measured per cell from records:
+
+| bucket | n-gram k=5 | DFlash k=7 |
+|---|---|---|
+| 2K | 1.0456 | 1.0556 |
+| 8K | 1.0715 | 1.1397 |
+| 32K | 1.0703 | 1.2964 |
+
+**At 2K the two rungs are indistinguishable (1.046 against 1.056). They diverge
+monotonically with context.** The factor fitted at 2K looked like a machine
+constant because 2K is the one bucket where the rungs agree.
+
+This is the pre-registered **branch B** signature exactly as written — "a factor
+that differs between rungs at long context but not short would mean the machine
+and drafter terms are not separable." The terms do not separate.
+
+#### The mechanism, measured
+
+Fitting `R(k) = (1 + R_draft) + c·k` over the k-sweeps on A40 at concurrency 1:
+
+| rung | bucket | k values | R_draft | c | R² | source job |
+|---|---|---|---|---|---|---|
+| DFlash | 2K | 1, 2, 7 | **+0.2988** | +0.0095 | 0.982 | 22737716 / 22598608 |
+| DFlash | 8K | 1, 2, 7 | **+0.4447** | +0.0152 | 0.967 | 22737717 |
+| DFlash | 32K | 1, 2, 4, 7 | **+0.6734** | +0.0138 | 0.944 | 22714602 |
+| n-gram | 2K | 1, 2, 7 | **+0.0714** | +0.0030 | 1.000 | 22757473 (gpub091) |
+| n-gram | 32K | 1, 2, 7 | **+0.1392** | +0.0069 | 0.799 | 22757472 (gpub073) |
+
+Three things follow.
+
+**1. The fixed drafting cost dominates the marginal verification cost.** At 32K,
+k=7: `R_draft` = 0.673 against `c·k` = 0.097. The fixed term is seven times the
+marginal one. At 2K it is four and a half times.
+
+**2. Both terms grow with context, but the fixed term grows faster.** DFlash
+`R_draft` +125% from 2K to 32K against `c` +45%; n-gram `R_draft` +95% against
+`c` +130% (on a much smaller base). The growth of `R` with context is therefore
+mostly in the per-step drafting cost, not in the cost of verifying extra
+positions.
+
+**3. This narrows the mechanism and rules one out.** LongSpec attributes
+long-context speculative inefficiency to tree-attention verification falling
+off optimised kernel paths for arbitrary attention masks. If that were the
+dominant effect here, it would appear in `c`, which is the per-verified-position
+term. It does not: `c` stays between 0.003 and 0.015 across a 16× context
+change. The dominant effect is the drafter's own forward pass over a growing
+prefix. The kernel hypothesis is not refuted, but it is second-order in this
+data.
+
+**n-gram's `R_draft` is not zero (0.071 at 2K, 0.139 at 32K), and that is not a
+GPU cost.** The n-gram rung runs no model. What grows is prefix matching over a
+longer prompt — CPU-side work charged to every decode step. So "the drafter is
+free" is false even for the model-free rung, and the reason it still tracks the
+machine factor closely is that its drafting cost is 4–9× smaller than DFlash's.
+
+#### Status and the one point off the curve
+
+Plotting the machine factor against `R_draft` gives a monotone relation in four
+of five points:
+
+| R_draft | machine factor | cell |
+|---|---|---|
+| 0.071 | 1.0456 | n-gram 2K |
+| 0.139 | 1.0703 | n-gram 32K |
+| 0.299 | **1.0556** | DFlash 2K |
+| 0.445 | 1.1397 | DFlash 8K |
+| 0.673 | 1.2964 | DFlash 32K |
+
+The exception is DFlash 2K, which sits below the n-gram 32K point despite twice
+the drafting cost. **Its A100 side is job 22757104 at `LIMIT=5`** — the same
+five-prompt cell that supplied the frozen prediction's only parameter. The one
+point that breaks the collapse is the one with five prompts.
+
+**C20 is therefore recorded as supported but not established**, pending A100 2K
+at n=50. If the collapse holds with that point replaced, the claim is that
+`R_draft` relative to target cost is the governing variable and context length
+is its proxy. If it does not hold, the two-channel decomposition still stands
+and the collapse does not.
+
+#### Scope
+
+Concurrency 1 only. Two drafter families from two of roughly seven. bf16. One
+target model. The n-gram k-sweep rows come from `gpub073` and `gpub091`;
+`gpub073` is on the project's exclusion list, so n-gram's `R_draft` carries that
+caveat and should be re-measured on a clean node before it appears in a figure.

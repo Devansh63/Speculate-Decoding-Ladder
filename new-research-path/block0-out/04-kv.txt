@@ -1,0 +1,85 @@
+  phase0-22569403.out: 4 arm(s) with KV lines
+  phase0-22598608.out: 9 arm(s) with KV lines
+  phase0-22685911.out: 9 arm(s) with KV lines
+  phase0-22713173.out: 9 arm(s) with KV lines
+  phase0-22757102.out: 3 arm(s) with KV lines
+  phase0-22757104.out: 3 arm(s) with KV lines
+  phase0-22757105.out: 3 arm(s) with KV lines
+  phase0-22802261.out: 3 arm(s) with KV lines
+  phase0-22802262.out: 3 arm(s) with KV lines
+  phase0-22802308.out: 3 arm(s) with KV lines
+  phase0-22802309.out: 3 arm(s) with KV lines
+
+      job                             run_id   KV GiB     KV tok     ctx  maxconc
+ 22569403           dflash_2K_k15_n100_s1234    18.85     120528   33792     3.57
+ 22569403            dflash_2K_k7_n100_s1234    19.97     127680   33792     3.78
+ 22598608          dflash_2K_k7_n50_s1234_c1    19.68     125840   33792     3.72
+ 22598608         dflash_2K_k7_n50_s1234_c32    17.95     114752   33792     3.40
+ 22598608          dflash_2K_k7_n50_s1234_c8    19.55     124992   33792     3.70
+ 22757102           dflash_2K_k7_n5_s1234_c1    19.68     125840   33792     3.72
+ 22757104           dflash_2K_k7_n5_s1234_c1    15.21      97264   33792     2.88
+ 22757105           dflash_2K_k7_n5_s1234_c1    19.68     125840   33792     3.72
+ 22713173         dflash_32K_k7_n25_s1234_c1    21.30     136160   33792     4.03
+ 22802262         dflash_32K_k7_n25_s1234_c1    16.83     107584   33792     3.18
+ 22802309         dflash_32K_k7_n25_s1234_c1    16.83     107584   33792     3.18
+ 22713173         dflash_32K_k7_n25_s1234_c2    19.65     125632   33792     3.72
+ 22713173         dflash_32K_k7_n25_s1234_c4    21.24     135760   33792     4.02
+ 22685911          dflash_8K_k7_n50_s1234_c1    21.30     136160   33792     4.03
+ 22802261          dflash_8K_k7_n50_s1234_c1    16.83     107584   33792     3.18
+ 22802308          dflash_8K_k7_n50_s1234_c1    16.83     107584   33792     3.18
+ 22685911         dflash_8K_k7_n50_s1234_c12    19.44     124256   33792     3.68
+ 22685911          dflash_8K_k7_n50_s1234_c4    19.62     125456   33792     3.71
+ 22569403             ngram_2K_k5_n100_s1234    22.71     165328   33792     4.89
+ 22598608           ngram_2K_k5_n50_s1234_c1    22.11     160960   33792     4.76
+ 22598608          ngram_2K_k5_n50_s1234_c32    21.68     157840   33792     4.67
+ 22598608           ngram_2K_k5_n50_s1234_c8    21.93     159696   33792     4.73
+ 22757102            ngram_2K_k5_n5_s1234_c1    22.11     160960   33792     4.76
+ 22757104            ngram_2K_k5_n5_s1234_c1    17.64     128416   33792     3.80
+ 22757105            ngram_2K_k5_n5_s1234_c1    23.77     173104   33792     5.12
+ 22713173          ngram_32K_k5_n25_s1234_c1    23.77     173104   33792     5.12
+ 22802262          ngram_32K_k5_n25_s1234_c1    19.30     140560   33792     4.16
+ 22802309          ngram_32K_k5_n25_s1234_c1    19.30     140560   33792     4.16
+ 22713173          ngram_32K_k5_n25_s1234_c2    22.00     160176   33792     4.74
+ 22713173          ngram_32K_k5_n25_s1234_c4    23.71     172624   33792     5.11
+ 22685911           ngram_8K_k5_n50_s1234_c1    23.77     173104   33792     5.12
+ 22802261           ngram_8K_k5_n50_s1234_c1    19.30     140560   33792     4.16
+ 22802308           ngram_8K_k5_n50_s1234_c1    19.30     140560   33792     4.16
+ 22685911          ngram_8K_k5_n50_s1234_c12    21.89     159408   33792     4.72
+ 22685911           ngram_8K_k5_n50_s1234_c4    21.98     160032   33792     4.74
+ 22569403               off_2K_k0_n100_s1234    22.74     165568   33792     4.90
+ 22598608             off_2K_k0_n50_s1234_c1    22.10     160912   33792     4.76
+ 22598608            off_2K_k0_n50_s1234_c32    21.96     159888   33792     4.73
+ 22598608             off_2K_k0_n50_s1234_c8    22.01     160288   33792     4.74
+ 22757102              off_2K_k0_n5_s1234_c1    22.10     160912   33792     4.76
+ 22757104              off_2K_k0_n5_s1234_c1    17.63     128368   33792     3.80
+ 22757105              off_2K_k0_n5_s1234_c1    22.10     160912   33792     4.76
+ 22713173            off_32K_k0_n25_s1234_c1    23.77     173056   33792     5.12
+ 22802262            off_32K_k0_n25_s1234_c1    19.30     140528   33792     4.16
+ 22802309            off_32K_k0_n25_s1234_c1    19.30     140528   33792     4.16
+ 22713173            off_32K_k0_n25_s1234_c2    22.03     160400   33792     4.75
+ 22713173            off_32K_k0_n25_s1234_c4    23.75     172944   33792     5.12
+ 22685911             off_8K_k0_n50_s1234_c1    23.77     173056   33792     5.12
+ 22802261             off_8K_k0_n50_s1234_c1    19.30     140528   33792     4.16
+ 22802308             off_8K_k0_n50_s1234_c1    19.30     140528   33792     4.16
+ 22685911            off_8K_k0_n50_s1234_c12    21.98     160064   33792     4.74
+ 22685911             off_8K_k0_n50_s1234_c4    22.02     160336   33792     4.74
+
+      rung   n   min GiB   max GiB   spread     mean
+    dflash  18     15.21     21.30     6.09    18.91
+     ngram  17     17.64     23.77     6.13    21.55
+       off  17     17.63     23.77     6.14    21.48
+
+  between-rung differences, against 'off':
+        dflash: +2.57 GiB
+         ngram: -0.07 GiB
+
+  Reading it:
+    largest within-rung spread (from 3 repeated rung(s)): 6.14 GiB
+    threshold for a quotable difference: 12.28 GiB
+    NOT SEPARABLE: dflash, ngram -- within noise. Report as
+                   'no measurable cost', with no figure at all.
+    Either way: do not quote a GiB figure to three significant
+    digits when the spread is the same order as the difference.
+    The publishable consequence is the concurrency ceiling in the
+    'maxconc' column, which is a property of the RUNG, not of
+    machine-and-bucket alone.

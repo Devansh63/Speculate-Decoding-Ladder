@@ -194,3 +194,5 @@ tells you which routing signal is worth instrumenting.
 - The `--max-tokens 1` split, so the headline ratios are decode-only.
 - A limitations paragraph owning that every ratio to date is end-to-end wall
   clock, with prefill included.
+
+> **Corrected 2026-10-13.** The magnitude in this note was re-derived by pairing within job; see `notes/2026-10-13-c19-correction.md`. The direction and the ceiling consequence stand; the pooled-across-jobs comparison that appeared to refute them was invalid.

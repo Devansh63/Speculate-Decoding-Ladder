@@ -1,0 +1,124 @@
+  exclusions: hosts=['gpub073'] jobs=-
+  NOTE /projects/bikd/dagraw2/Speculative_Ladder/results/a40/results.jsonl: 2 harness versions present: None, v2-2026-10-05
+  DROPPED  13 row(s): harness != v2*
+
+=== a40 ===
+bucket    rung   k   c  mtok    n       job     node    tok/s  speedup     cov  tau_c  tau_e      R  pair
+    2K     off   0   1   256   50  22737716  gpub014    32.55   1.0000  0.000   1.000  1.000 1.0000   job
+    2K   ngram   5   1   256   50  22737716  gpub014    37.58   1.1544  0.132   2.889  1.250 1.0828   job
+    2K  dflash   1   1   256   50  22737716  gpub014    39.13   1.2021  0.997   1.570  1.568 1.3046   job
+    2K  dflash   2   1   256   50  22737716  gpub014    47.77   1.4673  0.998   1.942  1.940 1.3221   job
+    2K  dflash   7   1   256   50  22737716  gpub014    60.68   1.8640  1.000*  2.543  2.543 1.3643   job
+               -> cov PINNED by clamp (+37 tok over gen_tokens)
+   32K     off   0   1   256   25  22713173  gpub019    14.90   1.0000  0.000   1.000  1.000 1.0000   job
+   32K     off   0   1   256   25  22714602  gpub047    14.83   1.0000  0.000   1.000  1.000 1.0000   job
+   32K     off   0   2   256   25  22713173  gpub019    18.90   1.0000  0.000   1.000  1.000 1.0000   job
+   32K     off   0   4   256   25  22713173  gpub019    21.65   1.0000  0.000   1.000  1.000 1.0000   job
+   32K   ngram   5   1   256   25  22713173  gpub019    16.07   1.0782  0.212   2.844  1.390 1.2892   job
+   32K   ngram   5   1   256   25  22714602  gpub047    15.98   1.0775  0.212   2.844  1.390 1.2902   job
+   32K   ngram   5   2   256   25  22713173  gpub019    19.78   1.0466  0.188   2.615  1.304 1.2460   job
+   32K   ngram   5   4   256   25  22713173  gpub019    21.49   0.9929  0.205   2.783  1.366 1.3758   job
+   32K  dflash   1   1   256   25  22714602  gpub047    11.29   0.7612  0.996   1.278  1.277 1.6772   job
+   32K  dflash   2   1   256   25  22714602  gpub047    11.62   0.7835  0.997   1.336  1.335 1.7043   job
+   32K  dflash   4   1   256   25  22714602  gpub047    12.04   0.8118  0.998   1.415  1.415 1.7427   job
+   32K  dflash   7   1   256   25  22713173  gpub019    12.31   0.8260  0.998   1.459  1.459 1.7658   job
+   32K  dflash   7   1   256   25  22714602  gpub047    12.25   0.8259  0.998   1.459  1.459 1.7660   job
+   32K  dflash   7   2   256   25  22713173  gpub019    17.27   0.9139  0.997   1.418  1.417 1.5504   job
+   32K  dflash   7   4   256   25  22713173  gpub019    19.07   0.8811  0.998   1.432  1.431 1.6240   job
+    8K     off   0   1   256   50  22685911  gpub079    27.62   1.0000  0.000   1.000  1.000 1.0000   job
+    8K     off   0   1   256   50  22737717  gpub047    27.73   1.0000  0.000   1.000  1.000 1.0000   job
+    8K     off   0   4   256   50  22685911  gpub079    68.29   1.0000  0.000   1.000  1.000 1.0000   job
+    8K     off   0  12   256   50  22685911  gpub079    99.71   1.0000  0.000   1.000  1.000 1.0000   job
+    8K   ngram   5   1   256   50  22685911  gpub079    31.54   1.1421  0.161   2.762  1.284 1.1240   job
+    8K   ngram   5   1   256   50  22737717  gpub047    31.78   1.1461  0.161   2.762  1.284 1.1201   job
+    8K   ngram   5   4   256   50  22685911  gpub079    73.16   1.0713  0.169   2.857  1.315 1.2272   job
+    8K   ngram   5  12   256   50  22685911  gpub079    95.30   0.9558  0.178   2.813  1.322 1.3835   job
+    8K  dflash   1   1   256   50  22737717  gpub047    26.65   0.9609  0.996   1.395  1.393 1.4500   job
+    8K  dflash   2   1   256   50  22737717  gpub047    30.39   1.0957  0.997   1.631  1.629 1.4868   job
+    8K  dflash   7   1   256   50  22685911  gpub079    34.78   1.2594  1.000*  1.953  1.953 1.5510   job
+               -> cov PINNED by clamp (+41 tok over gen_tokens)
+    8K  dflash   7   1   256   50  22737717  gpub047    34.98   1.2613  1.000*  1.953  1.953 1.5487   job
+               -> cov PINNED by clamp (+41 tok over gen_tokens)
+    8K  dflash   7   4   256   50  22685911  gpub079    75.92   1.1118  1.000*  1.941  1.941 1.7457   job
+               -> cov PINNED by clamp (+14 tok over gen_tokens)
+    8K  dflash   7  12   256   50  22685911  gpub079   102.08   1.0238  1.000*  1.996  1.996 1.9496   job
+               -> cov PINNED by clamp (+40 tok over gen_tokens)
+
+  * cov pinned at 1.000 by draft truncation -- an artifact, not a measurement. Do not quote cov from these rows.
+
+  GPUs: NVIDIA A40
+  harness: v2-2026-10-05
+
+=== fit R(k) = (1 + R_draft) + c*k ===
+  bucket=  2K rung= dflash c=1  k=[1, 2, 7] n=3  R_draft=+0.2988  c=+0.0095  R2=0.9822
+  bucket=  2K rung=  ngram c=1  only k=[5] -- need >=2 distinct k, skipped
+  bucket= 32K rung= dflash c=1  k=[1, 2, 4, 7] n=5  R_draft=+0.6734  c=+0.0138  R2=0.9443
+  bucket= 32K rung= dflash c=2  only k=[7] -- need >=2 distinct k, skipped
+  bucket= 32K rung= dflash c=4  only k=[7] -- need >=2 distinct k, skipped
+  bucket= 32K rung=  ngram c=1  only k=[5] -- need >=2 distinct k, skipped
+  bucket= 32K rung=  ngram c=2  only k=[5] -- need >=2 distinct k, skipped
+  bucket= 32K rung=  ngram c=4  only k=[5] -- need >=2 distinct k, skipped
+  bucket=  8K rung= dflash c=1  k=[1, 2, 7] n=4  R_draft=+0.4447  c=+0.0152  R2=0.9672
+  bucket=  8K rung= dflash c=4  only k=[7] -- need >=2 distinct k, skipped
+  bucket=  8K rung= dflash c=12  only k=[7] -- need >=2 distinct k, skipped
+  bucket=  8K rung=  ngram c=1  only k=[5] -- need >=2 distinct k, skipped
+  bucket=  8K rung=  ngram c=4  only k=[5] -- need >=2 distinct k, skipped
+  bucket=  8K rung=  ngram c=12  only k=[5] -- need >=2 distinct k, skipped
+
+  R_draft is the x-axis of the collapse figure. A negative R_draft is
+  not physical and means the linear form is wrong for that cell.
+
+=== a100 ===
+bucket    rung   k   c  mtok    n       job     node    tok/s  speedup     cov  tau_c  tau_e      R  pair
+    2K     off   0   1   256    5  22757104  gpua045    72.80   1.0000  0.000   1.000  1.000 1.0000   job
+    2K   ngram   5   1   256    5  22757104  gpua045    77.07   1.0586  0.130   2.525  1.199 1.1321   job
+    2K  dflash   7   1   256    5  22757104  gpua045   130.02   1.7859  1.000*  2.572  2.572 1.4401   job
+               -> cov PINNED by clamp (+6 tok over gen_tokens)
+   32K     off   0   1   256   25  22802262  gpua008    33.54   1.0000  0.000   1.000  1.000 1.0000   job
+   32K     off   0   1   256   25  22802309  gpua087    33.61   1.0000  0.000   1.000  1.000 1.0000   job
+   32K   ngram   5   1   256   25  22802262  gpua008    32.68   0.9742  0.198   2.743  1.345 1.3807   job
+   32K   ngram   5   1   256   25  22802309  gpua087    32.76   0.9747  0.198   2.743  1.345 1.3800   job
+   32K  dflash   7   1   256   25  22802262  gpua008    21.59   0.6437  0.998   1.473  1.473 2.2877   job
+   32K  dflash   7   1   256   25  22802309  gpua087    21.60   0.6428  0.998   1.473  1.473 2.2910   job
+    8K     off   0   1   256   50  22802261  gpua008    61.34   1.0000  0.000   1.000  1.000 1.0000   job
+    8K     off   0   1   256   50  22802308  gpua070    61.24   1.0000  0.000   1.000  1.000 1.0000   job
+    8K   ngram   5   1   256   50  22802261  gpua008    66.12   1.0780  0.163   2.824  1.297 1.2031   job
+    8K   ngram   5   1   256   50  22802308  gpua070    66.12   1.0796  0.163   2.824  1.297 1.2013   job
+    8K  dflash   7   1   256   50  22802261  gpua008    67.88   1.1066  1.000*  1.953  1.953 1.7644   job
+               -> cov PINNED by clamp (+38 tok over gen_tokens)
+    8K  dflash   7   1   256   50  22802308  gpua070    67.62   1.1041  1.000*  1.953  1.953 1.7684   job
+               -> cov PINNED by clamp (+38 tok over gen_tokens)
+
+  * cov pinned at 1.000 by draft truncation -- an artifact, not a measurement. Do not quote cov from these rows.
+
+  GPUs: NVIDIA A100-SXM4-40GB
+  harness: v2-2026-10-05
+
+=== fit R(k) = (1 + R_draft) + c*k ===
+  bucket=  2K rung= dflash c=1  only k=[7] -- need >=2 distinct k, skipped
+  bucket=  2K rung=  ngram c=1  only k=[5] -- need >=2 distinct k, skipped
+  bucket= 32K rung= dflash c=1  only k=[7] -- need >=2 distinct k, skipped
+  bucket= 32K rung=  ngram c=1  only k=[5] -- need >=2 distinct k, skipped
+  bucket=  8K rung= dflash c=1  only k=[7] -- need >=2 distinct k, skipped
+  bucket=  8K rung=  ngram c=1  only k=[5] -- need >=2 distinct k, skipped
+  nothing fittable -- run a k-sweep (>=2 distinct k per cell) first
+
+=== machine factor: R(a100) / R(a40) ===
+bucket    rung   k   c     R_a     R_b  factor   tau_a   tau_b   d_tau
+    2K  dflash   7   1  1.3643  1.4401  1.0556  2.5430  2.5720  +1.14%
+               -> d_tau +1.14% exceeds 1%. tau should transfer; check token_ids for output divergence before using this cell.
+    2K   ngram   5   1  1.0828  1.1321  1.0456  1.2500  1.1985  -4.12%
+               -> d_tau -4.12% exceeds 1%. tau should transfer; check token_ids for output divergence before using this cell.
+   32K  dflash   7   1  1.7659  2.2894  1.2964  1.4585  1.4726  +0.97%
+               -> averaged over 2 x a40, 2 x a100 run(s)
+   32K   ngram   5   1  1.2897  1.3804  1.0703  1.3901  1.3451  -3.24%
+               -> averaged over 2 x a40, 2 x a100 run(s)
+               -> d_tau -3.24% exceeds 1%. tau should transfer; check token_ids for output divergence before using this cell.
+    8K  dflash   7   1  1.5498  1.7664  1.1397  1.9533  1.9525  -0.04%
+               -> averaged over 2 x a40, 2 x a100 run(s)
+    8K   ngram   5   1  1.1220  1.2022  1.0715  1.2837  1.2970  +1.03%
+               -> averaged over 2 x a40, 2 x a100 run(s)
+               -> d_tau +1.03% exceeds 1%. tau should transfer; check token_ids for output divergence before using this cell.
+
+  tau should transfer across machines (small d_tau); R should not.
+  A factor that differs BY RUNG is the drafter-cost signal.

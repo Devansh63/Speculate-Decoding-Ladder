@@ -1,0 +1,31 @@
+tree A: /projects/bikd/dagraw2/Speculative_Ladder/results/a40   files matching perreq_ngram_32K_k5_*_c1.json: 1
+tree B: /projects/bikd/ssashi/Speculative_Ladder/results/a100   files matching perreq_ngram_32K_k5_*_c1.json: 1
+
+=== perreq_ngram_32K_k5_n25_s1234_c1.json ===
+  A: 25 record(s)
+  B: 25 record(s)
+  sequences compared        : 25
+  byte-identical outputs    : 4 (16.0%)
+  diverged                  : 21
+  mean compared length      : 256.0 tokens
+  per-token hazard          : 0.8925% per token
+  agreement implied by that : 10.1% (observed 16.0%)
+  first divergence position (16-token bins):
+       0-15      8 ########
+      32-47      2 ##
+      48-63      3 ###
+      64-79      1 #
+      80-95      2 ##
+     112-127     1 #
+     128-143     1 #
+     144-159     2 ##
+     240-255     1 #
+
+  Reading it:
+    Outputs diverge. A single different token changes every
+    downstream n-gram match, so a few-percent tau difference
+    needs no further explanation. Report tau per machine; do
+    not treat one figure as the error.
+    The per-token hazard is the figure to quote for output
+    agreement -- NOT the sequence rate, which is the hazard
+    raised to the output length and so mostly measures length.
