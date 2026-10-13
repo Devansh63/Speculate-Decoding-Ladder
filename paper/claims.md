@@ -926,3 +926,37 @@ cost, and why the H200 block is the first to drop if the hour request is slow.
 then deleted, so the sentence in the fold-in entry above that says it "stays as
 the record of what arrived when" is stale. Its content is all here, and nothing
 else references it.
+
+---
+
+## C19, 11 Oct 2026 (latest) — a rung's memory is a third cost axis
+
+Extracted from the KV-budget startup lines in the committed logs. No new GPU
+time, no new runs.
+
+| ID | Claim | Status | Falsifier |
+|---|---|---|---|
+| C19 | A rung's memory footprint lowers the request concurrency a server can admit, so a drafter can lose throughput twice — once in `R`, and once in the batch size it leaves room for | **Measured, free.** DFlash costs ~2.4 GiB of KV on *both* machines — A40 22.10 → 19.68 GiB, A100 17.63 → 15.21 GiB — and n-gram costs 0.00–0.01 GiB (22.11 against 22.10). The 33,792-token ceiling falls with it: A40 4.76 → 3.72, A100 3.80 → **2.88**, a 24% loss. The tax is absolute, so it is relatively worse on the smaller card — the direction that flatters a ladder on a big accelerator | A rung whose memory costs nothing the baseline would otherwise have used, or measured cells that sit far enough below their ceiling that the reduction never binds |
+
+Three consequences, all in `notes/2026-10-11-memory-tax-and-remaining-axes.md`:
+
+1. **The cost model is missing a term.** `Speedup ≈ [cov·τ_cond + (1−cov)] / R`
+   is a time ratio and memory appears nowhere in it, but at load the binding
+   constraint is how many requests fit. The 32K inversion is currently
+   attributed to drafting cost, and part of the gap is this. It should be
+   separated before the attribution is written, because "the drafter is
+   expensive per step" and "the drafter takes batch slots away" call for
+   different fixes — a smaller drafter for the first, a separate replica for the
+   second.
+2. **The ceiling is a property of the rung, not of machine-plus-bucket.** The
+   A100 32K grid is `1 2`; a request for 4 is reduced silently for DFlash and
+   the row would be labelled with a concurrency it never reached.
+3. **The within-rung drift is unexplained.** DFlash reads 19.65 GiB at c=2 and
+   21.24 GiB at c=4 in job 22713173, above its own c=1 value of 21.30. The
+   between-rung difference is consistent across every pair measured; quote
+   nothing in this entry to better than a few percent.
+
+`env/gpu-support.md` carried derived KV figures that were rounded up in the
+direction that flatters a grid (~182,000 tokens and ~5 concurrent at 32K on
+A40, against 160,912 and 4.76 measured). Corrected there to the measured values,
+with the rung-dependent row added.

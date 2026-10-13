@@ -86,6 +86,11 @@ bounded. Same wall-clock, and the term that is actually unmeasured.
 
 ## Immediate
 
+- [ ] **Push the A100 records.** `results/a100/` does not exist in this
+      repository — `results/` holds `a40/` and `logs/` only — so every number
+      quoted from jobs 22802261/22802262, and the branch read they decide, is
+      unverifiable by a second reader. `push_results.sh` from Delta, then the
+      per-record scoring the plan note's section 1 specifies.
 - [ ] **Tell the professor** about the scope change and the inversion result.
 - [ ] **Request an allocation top-up.** Roughly 1 to 2 GPU-hours remain.
 - [ ] **Diagnose Sahil's 7-second failures** (22713193, 22713194). Both on

@@ -124,11 +124,24 @@ head dim 128, two tensors, bf16. One 32K sequence is therefore about 4.6 GB.
 | | A40 48 GB | A100 40 GB |
 |---|---|---|
 | usable at `gpu_memory_utilization=0.90` | ~43 GB | ~36 GB |
-| less weights and DFlash head | ~25 GB for KV | ~18 GB for KV |
-| KV capacity in tokens | ~182,000 | ~131,000 |
-| reachable concurrency at 2K | ~88 | ~64 |
-| reachable concurrency at 8K | ~22 | ~16 |
-| reachable concurrency at 32K | ~5 | ~4 |
+| KV cache the `off` arm actually gets | **22.10 GiB** | **17.63 GiB** |
+| KV capacity in tokens, `off` | **160,912** | **128,368** |
+| reachable concurrency at 33,792 tokens, `off` | **4.76** | **3.80** |
+| the same, with DFlash loaded | **3.72** | **2.88** |
+
+The four measured rows come from the `kv_cache_utils` startup line in the
+committed logs — `results/logs/phase0-22598608.out.gz` (A40) and
+`phase0-22757104.out.gz` (A100) — not from arithmetic. Earlier versions of this
+table gave A40 as ~182,000 tokens and ~5 concurrent at 32K, which came from
+rounding the KV budget up to "~25 GB" before dividing by 144 KiB; measured, it
+is 160,912 and 4.76.
+
+**The ceiling is rung-dependent, which is the part that matters.** Loading
+DFlash costs about 2.4 GiB of KV on both machines — 22.10 → 19.68 GiB on A40,
+17.63 → 15.21 GiB on A100 — and takes the 32K ceiling down with it. n-gram
+costs nothing (22.11 against 22.10). Full table, and why this is a third cost
+axis the `tau`/`R` model omits: register C19 and
+`notes/2026-10-11-memory-tax-and-remaining-axes.md`.
 
 So a concurrency grid of 1, 8, 32 is honest only at 2K. At 8K and 32K vLLM
 will accept `--max-num-seqs 32` and then schedule fewer sequences than asked,
@@ -139,6 +152,11 @@ which silently mislabels the row. Hence the per-bucket grids:
 | 2K | 1, 8, 32 | 50 |
 | 8K | 1, 4, 12 | 50 |
 | 32K | 1, 2, 4 | 25 |
+
+**On A100 the 32K row is `1 2`.** `off` admits 3.80 concurrent 33,792-token
+requests there and DFlash admits 2.88, so a request for 4 is reduced silently
+for at least one rung of the loop and the row is labelled with a concurrency it
+never reached. See the table above.
 
 Verify the achieved value from the vLLM startup line in every log:
 
