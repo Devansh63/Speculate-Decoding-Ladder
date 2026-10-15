@@ -132,7 +132,24 @@ machines while cost does not?
 
 **Acceptance transfers to under one percent; the cost ratio rises 5.5%, and by
 the same amount for both rungs** — rungs that differ by 4x in drafting cost
-and 7x in coverage. That is what a machine property looks like.
+and 7x in coverage.
+
+**"That is what a machine property looks like" was the conclusion drawn here,
+and it is WITHDRAWN (13 Oct).** Two corrections, in opposite directions.
+
+*The acceptance row does not mean what it says.* Agreement to 0.8% is agreement
+in a **mean**. At the sequence level 21 of 25 outputs differ between the two
+machines at the same cell, so tau is not machine-invariant; the mean is stable
+while the thing it averages is not (threat 9).
+
+*The cost row is not a cost row.* `R` is defined in this project as
+`tau_eff / speedup`, so a ratio of `R` carries the cross-machine acceptance
+ratio inside it. Removing that channel — asking what the ratio would be at
+fixed acceptance — gives **1.0905 for n-gram against 1.0437 for DFlash at 2K**:
+4.7 points apart and in the **reverse** order. The two rungs agreed only
+because n-gram's tau fell 4.12% on A100 while DFlash's rose 1.14%. See C20 and
+`notes/2026-10-13-c20-amendment.md`. Report the speedup ratio and the tau ratio
+as two columns; there is no single machine factor to quote.
 
 The A100 is 2.21x faster at plain decoding and speculation pays *less* there.
 The explanation that used to follow — "speculation reclaims wasted memory
@@ -269,7 +286,7 @@ Out-of-sample checks:
 | GPU | arch | status | data |
 |---|---|---|---|
 | A40 | sm_86 | working throughout | everything at n >= 25, plus two n=5 cells |
-| A100-SXM4-40GB | sm_80 | **working** since the 8 Oct multi-architecture rebuild | one cell: 2K, batch 1, n=5 (job 22757104) |
+| A100-SXM4-40GB | sm_80 | **working** since the 8 Oct multi-architecture rebuild | 2K batch 1 n=5 (job 22757104), plus the 8K and 32K prediction grid of 13 Oct (jobs 22802261, 22802262) — 15 rows in `results/a100`. Still missing: **2K at n=50**, the cell the machine factor's only parameter was fitted on |
 | H200 | sm_90 | kernels present in the rebuilt venv, but `phase0.sh`'s guard allows only `80\|86` and aborts | none |
 
 Any A100 or H200 job **must** set

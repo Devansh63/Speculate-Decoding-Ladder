@@ -1036,13 +1036,84 @@ to A100 `R`. Measured per cell from records:
 | 8K | 1.0715 | 1.1397 |
 | 32K | 1.0703 | 1.2964 |
 
-**At 2K the two rungs are indistinguishable (1.046 against 1.056). They diverge
-monotonically with context.** The factor fitted at 2K looked like a machine
-constant because 2K is the one bucket where the rungs agree.
+**AMENDED hours later the same day, after external review. The factor above is
+contaminated by acceptance.** This project defines `R` by the identity
+`R = tau_eff / speedup`, so
 
-This is the pre-registered **branch B** signature exactly as written — "a factor
-that differs between rungs at long context but not short would mean the machine
-and drafter terms are not separable." The terms do not separate.
+```
+factor = R_A100 / R_A40 = (tau_A100 / tau_A40) / (speedup_A100 / speedup_A40)
+```
+
+and threat 9, registered the same day, establishes that `tau` does **not**
+transfer between machines — 21 of 25 sequences differ between A40 and A100. The
+tau term is therefore not a small correction that can be waved through. It is
+the same channel C13's 11 Oct correction said must not be dropped, reappearing
+on the other side of the equation.
+
+Holding acceptance fixed and asking what the cost ratio alone would be
+(`speedup_A40 / speedup_A100`):
+
+| bucket | rung | as registered | tau-free | d_tau |
+|---|---|---|---|---|
+| 2K | n-gram k=5 | 1.0456 | **1.0905** | -4.12% |
+| 2K | DFlash k=7 | 1.0556 | **1.0437** | +1.14% |
+| 8K | n-gram k=5 | 1.0715 | 1.0605 | +1.04% |
+| 8K | DFlash k=7 | 1.1397 | 1.1402 | -0.04% |
+| 32K | n-gram k=5 | 1.0703 | 1.1061 | -3.24% |
+| 32K | DFlash k=7 | 1.2964 | 1.2840 | +0.97% |
+
+`registered = tau-free x (1 + d_tau)` holds to four decimal places in every
+cell, so this is arithmetic rather than interpretation.
+
+**Withdrawn 1 — "at 2K the two rungs are indistinguishable."** Tau-free they
+differ by **4.7 points** rather than 1.0, **and in the opposite order**: n-gram
+1.0905 above DFlash 1.0437. The rungs looked equal at 2K only because n-gram's
+tau fell 4.12% on A100 while DFlash's rose 1.14%, and those cancel a
+4.7-point difference in the cost term.
+
+**Withdrawn 2 — the branch-B label.** Branch B was pre-registered as "a factor
+that differs between rungs at long context but not short". Tau-free the rungs
+differ at *every* bucket, so the observed pattern is in none of the three
+pre-registered branches, nor in the "broader than B" reading proposed and
+retracted earlier the same day. That the pre-registered diagnostic list does
+not contain the pattern that occurred is itself the outcome, and is recorded as
+such rather than forced into a label.
+
+**What survives is stronger.** C20's conclusion — the machine factor is not a
+property of the machine — is untouched. As registered it rested on the rungs
+agreeing at 2K and diverging after. Tau-free they disagree at *every* bucket,
+which is the stronger statement: there is no context at which a single scalar
+relates A40 cost to A100 cost across rungs. The `R_draft` fits below are
+unaffected, being fitted within one machine across k.
+
+**The fix is two columns, not a different scalar.** The tau-free factor is
+itself a **counterfactual** — it asks what the factor would be if tau
+transferred, and threat 9 says it does not. Replacing one contaminated scalar
+with one counterfactual scalar is not an improvement. Report both channels and
+stop claiming a single machine factor exists, which is what this claim's own
+title asserts and what its evidence section then contradicted by quoting one
+number per cell.
+
+**Aggregation, omitted from the table as first published.** `R` is averaged
+over same-cell realizations on both sides before the ratio is taken. An
+external reviewer recomputing 8K n-gram obtained 1.0704 against the published
+1.0715 by choosing a single A40 realization as the reference. Both are
+defensible; only one is what the table reports. Any future factor table states
+its aggregation.
+
+Full working in `notes/2026-10-13-c20-amendment.md`. The conflation, the 2K
+reversal and the aggregation omission were all found by external review of this
+repository's 13 Oct commits, not by the work that produced them.
+
+As first registered, and now withdrawn, kept for the record:
+
+> **At 2K the two rungs are indistinguishable (1.046 against 1.056). They
+> diverge monotonically with context.** The factor fitted at 2K looked like a
+> machine constant because 2K is the one bucket where the rungs agree.
+>
+> This is the pre-registered **branch B** signature exactly as written — "a
+> factor that differs between rungs at long context but not short would mean
+> the machine and drafter terms are not separable." The terms do not separate.
 
 #### The mechanism, measured
 
@@ -1088,21 +1159,30 @@ machine factor closely is that its drafting cost is 4–9× smaller than DFlash'
 Plotting the machine factor against `R_draft` gives a monotone relation in four
 of five points:
 
-| R_draft | machine factor | cell |
-|---|---|---|
-| 0.071 | 1.0456 | n-gram 2K |
-| 0.139 | 1.0703 | n-gram 32K |
-| 0.299 | **1.0556** | DFlash 2K |
-| 0.445 | 1.1397 | DFlash 8K |
-| 0.673 | 1.2964 | DFlash 32K |
+| R_draft | machine factor | tau-free factor | cell |
+|---|---|---|---|
+| 0.071 | 1.0456 | 1.0905 | n-gram 2K |
+| 0.139 | 1.0703 | 1.1061 | n-gram 32K |
+| 0.299 | **1.0556** | **1.0437** | DFlash 2K |
+| 0.445 | 1.1397 | 1.1402 | DFlash 8K |
+| 0.673 | 1.2964 | 1.2840 | DFlash 32K |
 
 The exception is DFlash 2K, which sits below the n-gram 32K point despite twice
 the drafting cost. **Its A100 side is job 22757104 at `LIMIT=5`** — the same
 five-prompt cell that supplied the frozen prediction's only parameter. The one
 point that breaks the collapse is the one with five prompts.
 
-**C20 is therefore recorded as supported but not established**, pending A100 2K
-at n=50. If the collapse holds with that point replaced, the claim is that
+**On the tau-free column the collapse is worse, not better.** 1.0905 at
+`R_draft` = 0.071 exceeds 1.0437 at 0.299, so monotonicity fails at two points
+rather than one, and the lowest-cost cell carries the third-highest factor.
+Whatever the collapse figure ends up plotting, it cannot be the registered
+factor against a within-machine cost fit: that puts acceptance on one axis only.
+
+**C20 is therefore recorded as supported but not established**, now for two
+reasons rather than one: the n=5 point below, and the restatement of the factor
+as a two-channel decomposition required by the amendment above, which must be
+settled **before** the collapse figure is drawn rather than after. Pending
+A100 2K at n=50. If the collapse holds with that point replaced, the claim is that
 `R_draft` relative to target cost is the governing variable and context length
 is its proxy. If it does not hold, the two-channel decomposition still stands
 and the collapse does not.
@@ -1198,7 +1278,12 @@ two nodes. Note that the A100 duplicate-pair ratio spreads were 0.05–0.23%,
 which is larger, so those were not pure node variance either and something
 further is unaccounted for there.
 
-### C22, 13 Oct 2026 — accuracy is invariant across rungs
+### C22, 13 Oct 2026 — no accuracy difference exceeds the baseline's own variation
+
+**This heading was first written "accuracy is invariant across rungs", which
+overclaims at n = 24 to 49.** The body always said the weaker thing; the
+heading is what would have been quoted. Corrected in place because a heading is
+a label, not a belief.
 
 LongBench-v2 is multiple choice, so the stored `token_ids` can be decoded and
 the chosen letter scored against the answer key. Scored over `results/a40` with

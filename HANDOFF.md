@@ -174,7 +174,12 @@ First paired A40/A100 measurement, 2K, concurrency 1:
 
 Acceptance transfers to under 1%. The cost ratio shifts 5.5%, **and by the
 same amount for both rungs** — rungs that differ 4x in drafting cost and 7x in
-coverage. That is the signature of a machine property. The A100 is 2.2x faster
+coverage. **That reading is withdrawn (13 Oct).** The 5.5% is a ratio of `R`,
+and `R` is defined here as `tau_eff / speedup`, so it carries the cross-machine
+acceptance ratio as well as the cost ratio. Tau-free the two rungs differ by
+4.7 points at 2K and in the reverse order — n-gram 1.0905 against DFlash
+1.0437 — so the agreement that looked like a machine property is two
+cancelling errors. See C20 and `notes/2026-10-13-c20-amendment.md`. The A100 is 2.2x faster
 and speculation pays *less* there. **Caveat: n=5.** The explanation that used
 to follow here — "speculation reclaims wasted memory bandwidth, and a faster
 machine wastes less" — is **withdrawn**. So is the argument first used to
@@ -282,11 +287,13 @@ See `paper/claims.md` for the authoritative version. Summary:
 - **C9** (drafting cost is fixed per step and grows with context) — measured
   for both rungs.
 - **C10** (changing concurrency perturbs output more than adding speculation
-  does at fixed concurrency) — **measured in this narrow form only.** The
-  strong form, that speculation perturbs output less than the engine perturbs
-  itself, is not established by the design. Needs a same-config control and an
-  interval; `code/c10_control.py` does the bootstrap, and `code/c10_control.sh`
-  runs the control.
+  does at fixed concurrency) — **the strong form is REFUTED, 13 Oct.** The
+  same-config control ran (jobs 22875382, 22876140): 150 of 150 sequences
+  bit-identical across two nodes, so at matched concurrency the engine does
+  not disagree with itself at all, and the entire control effect was
+  concurrency. There is nothing for speculation to be smaller than. The
+  speculative arms diverge at 0.556–0.781% per token against a floor bounded
+  at 0.023%, so this build is **not bitwise lossless**. See C21.
 - **C11** (run-to-run variance) — restated: **speedup ratios** replicate
   across nodes to 0.03–0.08%, **absolute throughput** does not (8.8% against
   one node). Report ratios.
@@ -304,10 +311,18 @@ See `paper/claims.md` for the authoritative version. Summary:
   both realizations at each end agreeing to ~0.1%. Correct statement: n-gram
   degrades mildly with context, far less than DFlash.
 - **C16, C17** (tau is machine-invariant; R scales by a single rung-independent
-  factor) — measured, one pair, n=5. **C17's mechanism is unexplained**: the
-  bandwidth story is withdrawn, and so is the ridge-point argument against it
-  (the A40 figure was wrong). Both are now restated as transfer across a
-  **bandwidth** axis, not a compute-to-bandwidth ratio axis.
+  factor) — **both overtaken on 13 Oct.** C16 is **refuted at the sequence
+  level**: 21 of 25 outputs differ between A40 and A100 at the same cell, so
+  tau does not transfer and the 0.8% agreement in the n=5 table is agreement
+  in a mean, not invariance (threat 9). C17 is **falsified as stated** by C20:
+  the factor differs between rungs at every bucket once the acceptance channel
+  is removed, and the 2K agreement that motivated it was two cancelling
+  errors. The replacement is not a better scalar but a **two-column
+  decomposition** — a speedup ratio and a tau ratio, reported separately.
+  C17's mechanism was already unexplained (the bandwidth story is withdrawn,
+  and so is the ridge-point argument against it, the A40 figure being wrong);
+  the amendment removes the quantity that mechanism was meant to explain. See
+  `notes/2026-10-13-c20-amendment.md`.
 - **C18** (plain decode is bandwidth-bound at batch 1) — measured, one pair:
   A100/A40 `off` throughput 2.21x against a bandwidth ratio of 2.23x and a
   compute ratio of 2.08x.
@@ -376,8 +391,25 @@ of a `1 2 4` grid is marginal and would be mislabelled if vLLM scheduled fewer.
 **The A100 32K grid is `1 2`; the A100 load axis belongs at 8K**, where twelve
 sequences need 14.6 GB and fit.
 
-**The test** is `code/submit_a100_predict.sh`, one command, ~1.5 GPU-hours.
-This is the highest-value GPU time available to the project.
+**The test RAN on 13 Oct** — jobs **22802261** (8K) and **22802262** (32K),
+both COMPLETED — and was scored from records rather than prose.
+
+| cell | predicted | measured | rel. error |
+|---|---|---|---|
+| 8K, n-gram k=5 | 1.09x | 1.0789x | -1.03% |
+| 8K, DFlash k=7 | 1.20x | 1.1054x | -7.88% |
+| 32K, n-gram k=5 | 1.02x | 0.9744x | -4.49% |
+| 32K, DFlash k=7 | 0.78x | 0.6432x | -17.5% |
+
+**Verdict: neither pass nor fail as pre-registered.** Two of four cells are
+within 5%, median absolute error 6.18%, under the 10% fail threshold. The 32K
+ordering holds — n-gram 0.974 above DFlash 0.643 — so the inversion survived
+onto a second machine, which was the prediction's substance. **Every cell is
+optimistic**, and the misses split cleanly **by rung**: n-gram 2 of 2 within
+5%, DFlash 0 of 2. A single machine factor cannot produce a rung-dependent
+error, which is where C20 came from, and the amendment to C20 shows the factor
+also conflates acceptance with cost. The remaining GPU test is **A100 2K at
+n=50**, because the factor's only parameter was fitted on five prompts.
 
 ---
 

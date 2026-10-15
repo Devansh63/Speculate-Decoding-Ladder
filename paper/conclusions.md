@@ -3,9 +3,15 @@
 The argument as a whole, rather than per experiment. Each section names the
 notes and jobs behind it.
 
-All measurements: Qwen3-8B on A40, LongBench-v2, greedy decoding, vLLM pinned to
-the stable model runner. Jobs 22598608 (2K), 22685911 (8K), 22713173 (32K),
-22714602 (k sweep and replication).
+All measurements: Qwen3-8B, LongBench-v2, greedy decoding, vLLM pinned to the
+stable model runner. A40 jobs 22598608 (2K), 22685911 (8K), 22713173 (32K),
+22714602 (k sweep and replication). A100 jobs 22757104 (2K, n=5), 22802261 (8K)
+and 22802262 (32K). Determinism control: A40 jobs 22875382 and 22876140 under
+harness `v3-2026-10-13`.
+
+Updated 13 Oct 2026. The hardware axis is no longer empty, the losslessness
+section below is rewritten, and two of the five "cannot claim" items have been
+closed.
 
 ---
 
@@ -117,28 +123,53 @@ shape of this project's results.
 
 ---
 
-## Losslessness, honestly stated
+## Losslessness, in two halves
 
 Speculative decoding is supposed to return exactly what the target model would
-have returned. On a continuous-batching server that is not testable.
+have returned. Measured, this build fails that at the bit level and passes it
+at the task level, and the two halves point in opposite directions.
 
-Comparing the no-speculation arm **against itself** at different concurrency,
-same prompts, same seed, no speculation anywhere: the outputs agree on only
-**12.7%** of sequences. Speculative arms against the baseline agree on **19.0%**.
+**At the bit level it is not lossless.** First the floor: three realizations of
+the no-speculation arm at one configuration, across two nodes, are **150 of 150
+sequences bit-identical**. Zero events in 12,800 token positions bounds the
+true per-token hazard at about **0.023%** (rule of three, 95%). Against that
+floor the speculative arms diverge at **0.556%** per token for n-gram k=5 and
+**0.781%** for DFlash — 24 to 34 times the bound, and systematic in k
+(0.738% at k=1 rising to 0.781% at k=2). Verifying k+1 positions runs different
+kernel shapes from decoding one, so near-ties resolve differently. The
+divergence is real, measurable and attributable to speculation (C21).
 
-**Changing concurrency perturbs output more than adding speculation does at
-fixed concurrency.** The stronger reading — that speculation perturbs output
-less than the engine perturbs itself — does not follow from this design: the
-control varies batch size *and* nondeterminism, while the treatment varies
-speculation alone (register, C10, corrected 11 Oct). Implied
-per-token divergence is 0.80% baseline-to-baseline and 0.65%
-speculative-to-baseline. The causes are batch-dependent reduction order in GPU
-kernels and prefix caching.
+**At the task level it is lossless.** LongBench-v2 is multiple choice, so the
+stored tokens can be scored against the answer key. At 8K **nine arms score
+34.7%, identically**. Every difference at 2K and 32K is exactly one prompt —
+and the baseline differs from itself by exactly one prompt across concurrency.
+No rung deviates by more than the baseline's own variation, over 503 graded
+questions (C22).
 
-The defensible claim is therefore relative: speculative decoding does not
-measurably perturb the greedy decoding path beyond the reproducibility floor of
-the serving system it runs on. Any paper claiming byte-exact equality on a
-vLLM-class server either disabled batching or did not check.
+**This replaces the framing this section used to carry**, which was built on a
+control comparing the baseline against itself at *different* concurrency: 12.7%
+sequence agreement against 19.0% for speculative arms, read as the engine
+perturbing itself more than speculation does. At matched concurrency the engine
+does not disagree with itself at all, so **the entire control effect was
+concurrency**, and the sentence this section ended on — that speculation does
+not perturb the greedy path beyond the serving system's reproducibility floor —
+is **withdrawn**. The floor is zero and speculation sits 24 to 34 times above
+it.
+
+What replaces it is sharper than what it replaces. Sequence identity, the
+metric the entire losslessness argument was conducted in, **does not predict
+task outcome**: speculation changes tokens at 24-34x the floor and changes no
+answer. A paper claiming byte-exact equality on a vLLM-class server either
+disabled batching or did not check. A paper claiming task-level equivalence can
+support it — and should say which of the two it means, because they are not the
+same claim and this data separates them.
+
+**The control still missing.** No speculative arm has been run twice at one
+configuration, so some part of the 0.556-0.781% could be that arm's own
+run-to-run noise rather than a systematic offset. Until that job runs, the
+supported statements are "the engine is deterministic" and "speculation
+diverges from the baseline", but not yet "speculation diverges systematically"
+(threats, 12).
 
 ---
 
@@ -161,21 +192,33 @@ decay suggests. That miss is what exposed the fixed drafter cost.
 
 ## What the paper cannot claim
 
-- **Hardware portability.** The project's original purpose was to show tau
-  transfers across machines while R does not. The vLLM build has no usable sm_80
-  kernels, so A100 fails outright and H200 cannot run. **Every number comes from
-  one GPU.** The decomposition is demonstrated across load and context, never
-  across hardware. This is the largest limitation and a rebuild would fix it.
-- **Confidence intervals.** Per-request timing is unavailable on this build, so
-  the planned paired bootstrap is impossible. One replication bounds run-to-run
-  variance below 1%, far under the effects claimed, but a bound is not an
-  interval.
+- **Hardware portability — partly answered, and not in the direction planned.**
+  The multi-architecture rebuild landed on 8 Oct, so A100 works and
+  `results/a100` holds 15 rows; H200 is blocked only by `phase0.sh`'s
+  `80|86` architecture guard. What the second platform showed is that the
+  original framing was wrong on both halves: **tau does not transfer** (21 of 25
+  sequences differ between machines at the same cell, even though the means
+  agree to 0.8%), and **R does not scale by one factor** (the rungs differ at
+  every bucket once acceptance is separated out). The hardware term is a result
+  rather than a side quest, but it is **one platform pair**, the 2K cell is
+  n=5, and a third point is needed before any of it is a trend.
+- **Confidence intervals.** Still none, and the reason has changed twice.
+  Per-request timing is not merely unavailable but **structurally absent**: the
+  harness asks the engine for `first_token_time`, `last_token_time` and
+  `finished_time`, this build populates none of them, so the planned paired
+  bootstrap cannot be computed at all. Nor can repeats supply one — at fixed
+  configuration the engine is bit-deterministic, so repeated whole runs measure
+  zero. The only unmeasured variance left is **prompt sampling**, and the route
+  to an interval is disjoint prompt subsets by document id.
 - **Generality.** One target model, one drafter family, one workload. Whether
   prediction-based drafters generally decay faster than retrieval-based ones is a
   conjecture supported by three points on one curve.
-- **Answer quality.** Losslessness was assumed, so task accuracy was never
-  scored. Given the 0.65% token divergence, that assumption is weaker than
-  planned. LongBench-v2 is multiple choice, so this is cheap to fix.
+- **Answer quality — closed.** Scored on 13 Oct: no rung's accuracy differs
+  from the baseline by more than the baseline's own variation across
+  concurrency, nine arms identical at 8K, every other difference exactly one
+  prompt (C22). The caveat that remains is **n**: 24 to 49 prompts per bucket,
+  where one flip moves 32K accuracy by 4.2 points, so the invariance has no
+  interval and should not be quoted with one.
 - **Prefix caching** is on throughout, at a hit rate that differs by bucket. It
   cancels from within-bucket ratios but confounds absolute throughput across
   buckets.

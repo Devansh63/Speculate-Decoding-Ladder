@@ -30,18 +30,25 @@ calculus — see "Hopper" below.
 
 Recorded here so the queue below is read against them.
 
-- **C20** — the machine factor is rung-independent at 2K (1.046 vs 1.056) and
-  diverges with context (1.070 vs 1.296 at 32K). `R_draft` measured from the
-  k-sweeps: DFlash 0.299 / 0.445 / 0.673, n-gram 0.071 / – / 0.139. The fixed
-  drafting term dominates `c·k` by 4–7× and grows twice as fast.
-  **Status: supported, not established** — the one point off the collapse is
-  the n=5 2K cell.
+- **C20** — there is no single machine factor. **Amended the same day**: the
+  factor as first registered is `(tau ratio) / (speedup ratio)`, so it carried
+  acceptance as well as cost. Tau-free the rungs differ at *every* bucket, and
+  at 2K by 4.7 points in the **reverse** order (n-gram 1.0905 vs DFlash
+  1.0437) — so "rung-independent at 2K" and the branch-B label are both
+  withdrawn. The conclusion survives and strengthens. `R_draft` from the
+  k-sweeps is unaffected: DFlash 0.299 / 0.445 / 0.673, n-gram 0.071 / – /
+  0.139, the fixed drafting term dominating `c·k` by 4–7× and growing twice as
+  fast. **Status: supported, not established** — the n=5 2K cell is off the
+  collapse, and the factor needs restating as two columns before any figure.
+  See `notes/2026-10-13-c20-amendment.md`.
 - **C21** — the engine is bit-deterministic at fixed configuration (150/150,
   two nodes), so C10's control was measuring *concurrency*. Speculation's
   token divergence is real and 24–34× the floor: this build is **not bitwise
   lossless**.
-- **C22** — accuracy is invariant across rungs. Speculation changes tokens and
-  does not change answers.
+- **C22** — no accuracy difference exceeds the baseline's own variation.
+  Speculation changes tokens and does not change answers. Stated that way
+  rather than as "invariant": n is 24 to 49 per bucket and one flip moves 32K
+  by 4.2 points.
 
 ---
 
@@ -178,7 +185,7 @@ execution — then cells.
 | A100 rebuild | **Done.** The multi-architecture venv works; `results/a100` is committed with 15 rows. |
 | Sahil's 7-second failures | **Done.** Named-ACL precedence, not the kernel problem. |
 | Drafter memory as a third cost axis | **Done and reframed.** The drafter's weights are charged to the KV pool; see C19 and `notes/2026-10-13-c19-correction.md`. |
-| Quality evaluation | **Done.** C22: accuracy is invariant. The 0.65% token divergence changes no answer. |
+| Quality evaluation | **Done.** C22: no difference exceeds the baseline's own variation. The token divergence — 0.556-0.781%, not the 0.65% figure, which came from the confounded C10 control — changes no answer. |
 | `k=1` experiment / parameterising k | **Done.** `ARMS` in `phase0.v3.sh`; the A40 k-sweeps gave `R_draft` for C20. |
 | n-gram coverage flag | **Done.** `PLMIN`/`PLMAX` in v3; the sweep itself is still queued. |
 | EAGLE-3 | Checkpoints exist for Qwen3-8B (Tengyunw, RedHatAI, mobilint). It varies head quality at roughly fixed drafter cost, so it tests τ rather than R — a different axis from the drafter-size dial. Worth it only once the must-do rungs have intervals. |

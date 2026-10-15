@@ -59,17 +59,31 @@ must be narrowed to those cells. **τ is to be reported per machine**; the
 
 Divergence is front-loaded — 8 of the 21 first diverge within the first 16
 tokens — so a single hazard rate under-predicts agreement (10.1% implied against
-16.0% observed). Prefill numerics most likely differ and the first token follows.
+16.0% observed). **Stated as what is measured: two rates, not one mechanism.**
+The position distribution is consistent with an elevated early hazard followed
+by a lower steady one, and "prefill numerics differ and the first token
+follows" is one explanation among several; nothing here distinguishes it from a
+uniform hazard plus a short high-variance transient. The modelling consequence
+holds either way — a single rate is the wrong summary — and the mechanism is
+untested.
 
 **10. Sequence-level output agreement is a length artefact.** Agreement is the
 per-token hazard raised to the output length, so at 256 tokens it mostly
 measures how long the outputs are. C10's figures (12.7% baseline-against-itself,
 19.0% speculative-against-baseline) are consistent with per-token rates of 0.80%
-and 0.65%, which means the right statistic is the **per-token hazard** and on
-that statistic speculation perturbs output *less* than the engine perturbs
-itself across batch sizes. That is C10's withdrawn direction, so the metric —
-not only the control — needs replacing. The same-configuration C10 control is
-still required before any null exists.
+and 0.65%, which means the right statistic is the **per-token hazard** rather
+than sequence agreement.
+
+**Resolved 13 Oct, and it went further than this entry expected.** The
+same-configuration control ran: the engine's own hazard at matched concurrency
+is **zero** (150/150 identical, bounded at 0.023%), so the null exists and
+there is nothing for speculation to be below. The reading recorded here — that
+on the per-token statistic speculation perturbs output less than the engine
+perturbs itself — is **withdrawn with the rest of C10's strong form**. Against
+a same-job baseline at matched concurrency the speculative hazards are
+0.556–0.781%/tok, 24–34× the floor (C21). The metric point stands and is now
+the more useful half: sequence agreement is a length artefact, the per-token
+hazard is the statistic, and C22 shows neither predicts task outcome.
 
 **11. n-gram may have been run at a suboptimal k throughout.** The A40 n-gram
 k-sweep gives 32K speedups of 1.0432 (k=1), 1.1320 (k=2) and 1.1809 (k=7)
@@ -111,3 +125,21 @@ longer context making the task easier is implausible; this is the
 bucket-document-overlap confound (threat 3) appearing in task accuracy, and it
 strengthens the case for per-domain subset runs since domain composition
 differs by bucket.
+
+**17. The machine factor conflated cost with acceptance — resolved, with one
+thing still open.** `R` is defined here as `tau_eff / speedup`, so every ratio
+of `R` between machines carries the cross-machine acceptance ratio as well as
+the cost ratio. C20 was registered on such ratios, which is why its 2K cells
+agreed: n-gram's tau fell 4.12% on A100 while DFlash's rose 1.14%, cancelling a
+4.7-point gap in the cost term. Removing that channel reverses the 2K ordering
+(n-gram 1.0905 against DFlash 1.0437) and widens the gap. The arithmetic is
+settled and recorded in C20 and `notes/2026-10-13-c20-amendment.md`; two
+statements were withdrawn and the conclusion strengthened.
+
+**What is still open is the figure.** The planned collapse plot puts the
+registered factor on y and a within-machine `R_draft` fit on x, so y is partly
+acceptance and x is not. The tau-free factor is a counterfactual (it asks what
+the factor would be if tau transferred, and threat 9 says it does not), so
+substituting it is not a fix either. Either plot two series — the speedup ratio
+and the tau ratio — or plot the counterfactual and label it as one. **Settle
+this before drawing, not after.**
