@@ -114,6 +114,43 @@ shortcut that skips attention entirely. It was a sticky error from an earlier
 failed launch. `CUDA_LAUNCH_BLOCKING=1` helps but does not cover CUDA graph
 capture. Bisect by layer instead.
 
+## 2 Nov 2026
+
+All from documents and source code, not measurements. Detail and the plan in
+`notes/2026-11-02-NEW-FINDINGS-adaptive-speculation.md`.
+
+**Direction is a joint policy over rung and draft length**, with off as an
+action, per request and per step. Established by a 48-paper survey and a
+seven-source prior-work check: online drafter selection (MetaSD, ACL 2026
+Findings; HedgeSpec, ICLR 2026), bandits over drafters or lengths (BanditSpec,
+ICML 2025) and off arms in vLLM (Nightjar) all exist; none chooses rung and
+length jointly, keys on prompt length, or runs at 2K to 32K.
+
+**DFlash can be resumed after idle steps.** The context-KV write is a separate
+cheap path from the draft forward; a keep-warm mode makes two-way rung
+switching possible. Established from `vllm/v1/spec_decode/dflash.py` and
+`qwen3_dflash.py` at bf13ecc2f. The one-way-descent assumption of 1 Nov is
+withdrawn.
+
+**The mechanism given for `R_draft` growing with context does not match the
+code.** The head never re-runs over the context; its only context-scaling term
+is on the order of 1 ms at 32K on A40, against a measured 52 ms overhead per
+step. The measurement (8 Oct note) stands; the cause needs a profile.
+
+**Prefix caching plus skipped drafter steps is a known vLLM bug** (#47930):
+restored tokens never get drafter KV. Every filed run has prefix caching on.
+The caching-off control is now a prerequisite.
+
+**The pinned build already has per-step dynamic draft length**
+(`dynamic_sd_lookup`, K=0 allowed, both rungs) and per-request acceptance
+arrays (`per_request_spec_decode_metrics = "detailed"`). The policy can live
+in a `scheduler_cls` subclass with no vLLM edit.
+
+**k=7 is a truncation of the drafter.** DFlash-b16 is 1 anchor plus 15 mask
+slots; the official launch uses 15; the harness default is 15; every filed run
+used 7. The DFlash paper's Table 8 puts the cost at about 1.2 accepted tokens
+per step.
+
 ## Resolved open questions
 
 - ~~Where does each rung's speedup cross 1.0x on the concurrency axis?~~ At 2K:

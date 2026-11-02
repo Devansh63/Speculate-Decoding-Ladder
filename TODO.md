@@ -52,6 +52,42 @@ Recorded here so the queue below is read against them.
 
 ---
 
+## NEW FINDINGS, 2 Nov 2026: adaptive speculation
+
+Read `notes/2026-11-02-NEW-FINDINGS-adaptive-speculation.md` first. The
+paper's contribution is now a joint policy over rung and draft length with
+off as an action; the queue below replaces "router in vLLM" from the
+Checkpoint 1 deck. 100 GPU hours were granted on "Delta AI" (partition
+unconfirmed).
+
+Phase 1, no GPU:
+
+- [ ] Confirm whether the 100 hours are DeltaAI (GH200, ARM) or Delta A100.
+- [ ] Fit `R(k, L) = R_draft(L) + c(L) * k` and `tau(k, L)` per rung from the
+      filed A40 sweeps; predict every k to 15 including 0, the best pair per
+      bucket, and the static router's gain over fixed k=7. Register as frozen
+      predictions; k=15 at concurrency 1 is the held-out test.
+- [ ] Recover the n-gram k-probe numbers (k = 1, 2, 7) from the Delta logs
+      into `results/`; `results/a40` has k=5 only.
+- [ ] Write the diagnosis job: per-step acceptance per bucket; one 32K DFlash
+      step profiled into KV write, draft forward, verify; prefix-caching-off
+      control; keep-warm vs K=0 vs off at 32K.
+- [ ] Decide and record whether k=7 was deliberate over the native 15.
+
+Phase 2, no GPU:
+
+- [ ] Policy package under `code/`, `scheduler_cls` subclass extending
+      `AsyncScheduler`, harness v4 with policy flags and
+      `per_request_spec_decode_metrics = "detailed"`, unit tests, job script.
+- [ ] Keep-warm proposer patch and the composite proposer (PR #24344's
+      design) in a project-owned venv via `rebuild_multiarch.sh`.
+
+Phases 3 to 6, GPU: diagnosis (~1 h), sweep completion with per-request
+timing (~8 h wall per GPU), policy evaluation (~8 h wall per GPU), writing.
+Budget in the note.
+
+---
+
 ## Immediate, no GPU
 
 - [ ] **Patch `check_lossless`'s verdict block.** The control and main sections

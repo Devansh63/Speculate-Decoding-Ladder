@@ -70,7 +70,30 @@ directory overwrites the first.
 
 ---
 
-## 13 Oct 2026 (latest) — Block 0 closed, harness v3, and the determinism floor
+## 2 Nov 2026 — literature settled, two assumptions withdrawn, plan rewritten
+
+No jobs run, no GPU hours spent. Three documents' worth of reading, recorded in
+`notes/2026-11-02-NEW-FINDINGS-adaptive-speculation.md` and summarised in
+`notes/findings.md` under 2 Nov.
+
+- 48-paper survey on adaptive draft length (theory, learned and bandit
+  policies, confidence stopping, dynamic trees, serving engines, long context)
+  and a seven-source check on multi-drafter switching (MetaSD, HedgeSpec,
+  BanditSpec, H-Spec, SpecDiff-2, SpecInfer, vLLM #49112), with BanditSpec and
+  the vLLM source at bf13ecc2f read in full.
+- Direction fixed: a joint policy over rung and draft length with off as an
+  action. The novelty statement is now six scoped clauses with the closest
+  prior work named per clause (note, section 2).
+- Withdrawn: the 1 Nov assumption that rung switching inside a request must be
+  one-way (keep-warm makes DFlash resumable), and the mechanism the 8 Oct note
+  attached to `R_draft` growing with context (the head never re-runs over the
+  context; the measurement stands, the cause needs a profile).
+- Found: prefix caching plus skipped drafter steps is vLLM issue #47930, and
+  every filed run has prefix caching on. The caching-off control moves to the
+  front of the queue.
+- TODO gains a "NEW FINDINGS" section with the phase 1 and 2 queue.
+
+## 13 Oct 2026 — Block 0 closed, harness v3, and the determinism floor
 
 Nine commits: `710f4f4` through `c409802`. The day's result is C21 — at fixed
 configuration the engine is bit-deterministic, which refutes C10's strong form
