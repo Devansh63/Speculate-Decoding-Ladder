@@ -176,3 +176,36 @@ per step.
   caching-off control answers it.
 - Does the 0.65% token divergence change any task answer? No quality evaluation
   has been run.
+
+---
+
+## 2 Nov 2026: the 2 Nov prior-work claims, independently checked
+
+`notes/2026-11-02-verification-of-new-findings.md` checks the citations in the
+same day's NEW FINDINGS note against primary sources. Three claims there are
+wrong or unverifiable: the SpecExtend figure (refuted on three counts; the real
+Table 2 values never go below 1.0x and the paper's conclusion is the opposite),
+AdaSpec's "Corollary 4.4" (not found; only Lemma 4.1 and 4.2 are visible), and
+the Compact Memories 0.92x to 1.06x pair (could not verify). A replacement
+derivation for the sign split comes from Leviathan's closed form plus MagicDec,
+both peer-reviewed.
+
+Five works the survey did not reach, one of them serious: **WhiFlash**
+(arXiv:2606.07710) routes per decoding step between EAGLE-3 and **DFlash** on
+**Qwen3-8B**, which is the nearest prior art in existence; **OWL**
+(arXiv:2510.07535) publishes the sub-break-even long-context collapse at 0.81x,
+so our 0.83x is corroboration rather than discovery; **Performance or Illusion?**
+(MLSys 2026 oral) is a vLLM study including Qwen3-8B that already proposes the
+oracle and asks for a lightweight predictor, but never varies context and is
+H100 only; **Context-Aware Assistant Selection** (EMNLP 2024) selects drafters
+per request with a learned no-speculation arm; and retrieval-versus-head
+selection is already done four ways, all per step on intrinsic signals.
+
+Net: the claim narrows to **opposite-signed** rather than "across kinds", and
+the cross-hardware clause is the cleanest novelty left, since no
+speculative-decoding paper does held-out-GPU prediction at all.
+
+**Open question unchanged by any of this:** why both drafting costs are
+sublinear in context. Section 3 of the NEW FINDINGS note now shows the
+mechanism previously attributed to it cannot be right, since the head never
+re-runs over the context, and it calls for a profile of one 32K DFlash step.

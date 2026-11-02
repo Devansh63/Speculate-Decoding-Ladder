@@ -1181,3 +1181,39 @@ axis is assigned to it.
 - **Quality evaluation not run** — free, login node.
 - **Eager-vs-compiled divergence** (8 Oct) not yet folded into the losslessness
   note.
+
+---
+
+## 2 Nov 2026 (later): citation check, record corrections, and a session handoff
+
+Three things landed after `bda744b`, none of them a measurement.
+
+**An independent citation check** of the same day's NEW FINDINGS note, in
+`notes/2026-11-02-verification-of-new-findings.md`. Three claims in its section
+1 are wrong or unverifiable; its sections 3 and 4, which come from reading vLLM
+at `bf13ecc2f`, stand and supersede earlier assumptions about what the engine
+can do. Both notes are read together; neither replaces the other.
+
+**The record was corrected where a wrong citation would have outlived the
+session.** `paper/related-work.md` grew from 2.7 KB to 12 KB: six anchored
+fixes to existing rows, including two real defects (TurboSpec listed as a
+separate work when it is SmartSpec's arXiv entry under a second title, and
+AdaSpec and SpecServe counted as two papers when they are one arXiv id), plus a
+dated verification section carrying the eight works that must be cited, the
+surviving claim as a conjunction, and the items still needing a human. Threat 18
+records the failure mode: the survey found titles correctly and then paraphrased
+contents from snippets, which is HANDOFF section 9 applied to the literature
+instead of to the measurements. The rule now is that nothing enters
+related-work unless its full text was opened and the entry carries an id plus a
+verification status.
+
+**`SESSION-BOOTSTRAP.md`** was added at the repo root. It is a one-page-plus
+handoff for starting a fresh assistant session: the standing constraints, the
+project, the operating rules, the cost model, the measured results, where the
+literature leaves us, a reading order, the phase plan, and a list of things not
+to do. Every path it names was checked to exist. Paste it as the first message
+of a new session.
+
+Companion documents now live as files in the course folder rather than as share
+links, which a new session cannot read: the full project briefing, the
+literature review, the script explainer and the midpoint deck study guide.

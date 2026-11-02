@@ -143,3 +143,49 @@ the factor would be if tau transferred, and threat 9 says it does not), so
 substituting it is not a fix either. Either plot two series — the speedup ratio
 and the tau ratio — or plot the counterfactual and label it as one. **Settle
 this before drawing, not after.**
+
+
+**18. The 1 November literature survey was assembled from search snippets, not
+from the papers, partially resolved 2 Nov 2026.** A 48-paper survey produced
+the claim that no published work keys draft length on context length. A
+verification pass against primary sources found that the *titles* were mostly
+real and the *contents* were not. Both checkable quantitative or structural
+claims failed: the SpecExtend figures (reported as EAGLE-3 on Llama-3.1-8B going
+2.76x to 0.83x) are wrong on three counts: the targets are Vicuna-7B and
+LongChat-7B, the drafter is EAGLE, and the real Table 2 values are 2.57x at 1K
+through 1.34x at 8K to 1.61x at 16K, with **nothing below 1.0x**, so the paper
+was cited against its own conclusion. And AdaSpec's "Corollary 4.4" does not
+appear in the fetched text. Three further defects: "SwitchSD" does not exist;
+AdaSpec and SpecServe are one arXiv entry, not two; and vLLM issue #6300 was
+**not** closed as not planned: the only maintainer comment invites
+contributions, and the real objection is narrower and more consequential, that
+drafter choice should not be exposed through `SamplingParams`, which points the
+implementation at a server-side planner.
+
+**Why this is a threat and not just an erratum.** This is the recurring failure
+mode named in `HANDOFF.md` section 9, applied to the literature instead of to
+the measurements: a conclusion drawn from a proxy (a search snippet) instead of
+the thing itself (the paper). A wrong citation outlives any session and is the
+one class of error a reviewer catches for free.
+
+**Rule going forward:** no work enters `paper/related-work.md` unless its full
+text was opened, and every entry carries an arXiv id or DOI plus a verification
+status. Entries whose venue or numbers could not be confirmed say so in the row.
+The corrected table and the evidence are in `paper/related-work.md` under
+"Verification pass, 2 November 2026" and in
+`../../Adaptive K and drafter routing.md`.
+
+**Two of these claims are repeated in the repo**, in section 1 of
+`notes/2026-11-02-NEW-FINDINGS-adaptive-speculation.md`: the SpecExtend figure
+and the AdaSpec "Corollary 4.4". That note is otherwise the best record we have
+of the engine and the plan, and its sections 3 and 4 are from source reading and
+stand. The citation check is
+`notes/2026-11-02-verification-of-new-findings.md`, which also supplies a
+replacement derivation for the lost theory from Leviathan's closed form plus
+MagicDec, both peer-reviewed. **Neither note is to be deleted or overwritten;
+they are read together.**
+
+**Still open:** four items could not be verified and need a human: whether vLLM
+PR #54801 merged, Sequoia Section 4.2.3, a possible published WhiFlash at
+2026.findings-emnlp.633, and whether "Windowed-MTP" exists. Only the first two
+can change the claim.
