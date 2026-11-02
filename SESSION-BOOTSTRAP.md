@@ -295,7 +295,7 @@ the task needs.
    `analyze.py`, `summarize.py` (last-run-wins, do not take provenance from it),
    `check_lossless.py`, `make_subsets.py`.
 12. `results/a40`, `results/a100`, `results/a40_c10`: every row carries commit,
-   GPU, node, job, runner, model revision, rung, bucket, seed.
+    GPU, node, job, runner, model revision, rung, bucket, seed.
 
 **Companion documents in the course folder, one level up from the repo:**
 
