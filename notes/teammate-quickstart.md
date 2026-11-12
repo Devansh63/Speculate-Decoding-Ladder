@@ -229,6 +229,45 @@ sm_80 listed in the main extension and still could not launch a kernel,
 because that half of the fat binary was missing kernels the sm_86 half had.
 The only real test is running `diag_a100.sh`.
 
+### The k sweep, every rung at every draft length
+
+Added 12 Nov 2026. Not yet run on Delta: do the smoke job first.
+
+It runs from your own clone, because the shared scripts directory is not
+writable and does not hold harness v4.
+
+```bash
+cd /projects/bikd/$USER/Speculative_Ladder/repo && git pull && cd code
+
+python3 make_domains.py --check     # per-domain counts; writes nothing
+python3 make_domains.py             # only if you want per-domain jobs
+
+# smoke: five arms, five prompts. Prints the job and its cost, then submits it
+bash submit_ksweep.sh BUCKETS=2K LIMIT=5 K_NGRAM=5 K_DFLASH=7
+bash submit_ksweep.sh BUCKETS=2K LIMIT=5 K_NGRAM=5 K_DFLASH=7 GO=1
+
+bash submit_ksweep.sh               # the three all-domain jobs, printed only
+bash submit_ksweep.sh GO=1
+```
+
+`submit_ksweep.sh` sets `LADDER_VENV` to the multiarch venv and one
+`LADDER_OUT` per domain for you. It submits nothing without `GO=1`, and the
+hours it prints are a floor: budget double. Other knobs are in the header of
+`ksweep.sh`; the ones you will want are `PART=gpuA100x4`, `DOMAINS=each`,
+`PC=off` (prefix caching off for every arm) and the three k lists.
+
+Afterwards:
+
+```bash
+sacct -j <jobid> --format=JobID,Partition,NodeList%12,State,Elapsed,ExitCode -X
+python3 ksweep_table.py /projects/bikd/$USER/Speculative_Ladder/results/a40_ksweep*
+bash push_ksweep.sh "A40 k sweep, jobs <ids>"
+```
+
+A k-sweep job exits non-zero if any arm wrote no row, so `FAILED` in `sacct`
+means read the log, and `COMPLETED` means every arm has a row. Table 3 of
+`ksweep_table.py` is the answer to "does adaptive k help".
+
 ### Pushing results to GitHub
 
 Optional, and it needs your own token so the commits are attributed to you.

@@ -118,6 +118,20 @@ refuses to start without it. Leave it alone: with the V2 runner, n-gram
 silently falls back to the stable runner while DFlash stays on V2, so the two
 rungs would be measured on different code paths.
 
+**Async scheduling is the second code path, and it is not pinned by default.**
+Every arm in a reported comparison runs with the same async-scheduling state.
+The harness records the resolved state per run; a comparison across states is
+a bug, not a result. *Why it is a rule:* at the pin, async scheduling defaults
+on for `off` and `dflash` and off, with a warning, for CPU `ngram`
+(`vllm/config/vllm.py` lines 1456 to 1505 at `bf13ecc2f`). Thirteen filed jobs
+compared n-gram against a baseline in the other mode before anyone looked
+(the 2 Nov response, section 3). Harness v4 (`run_benchmark.v4.py`) writes
+`resolved.async_scheduling` in every row and takes `--async-scheduling`;
+`ksweep.sh` runs a sync `off` arm beside every CPU n-gram sweep; and
+`ksweep_table.py` prints no ratio between arms whose states differ. Rows from
+harness v2 and v3 carry no resolved state: treat their n-gram ratios as
+cross-mode. Agreed by both teammates on 2 Nov 2026, added here 12 Nov.
+
 ---
 
 ## 5. Where results go

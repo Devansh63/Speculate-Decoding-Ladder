@@ -70,6 +70,56 @@ directory overwrites the first.
 
 ---
 
+## 12 Nov 2026: outside evaluation recorded, harness v4, the k-sweep scripts
+
+No jobs run, no GPU hours spent.
+
+**An adversarial evaluation of the project** ("is there a paper here"), done
+on 11 Nov from the brief and checked against primary sources, is recorded in
+`notes/2026-11-12-independent-evaluation-and-k-sweep.md`. Verdict: not a
+paper as it stands, a strong course project, a workshop measurement note
+after the queued controls. Three new threats went into `paper/threats.md`
+(19 to 21). Nothing was added to `paper/related-work.md`, because the sources
+were read through a summarising fetch and not opened by eye.
+
+**Two numbers recomputed from `results/a40/results.jsonl`, no GPU:**
+
+- Weighted by time instead of by averaging ratios, the best fixed rung on a
+  uniform 2K/8K/32K mix is n-gram (1.112x), not DFlash (1.060x), and best per
+  bucket is 1.247x: 12.1% over best fixed, where the brief had 6.3%. With no
+  n-gram at all, gating DFlash off at 32K is 1.193x against 1.059x.
+- DFlash's best k is 7, the largest tested, at 2K, 8K and 32K. Within the
+  filed sweeps adaptive k has nothing to adapt to. k = 11 and 15 at
+  concurrency 1 are the open cells.
+
+```bash
+python3 code/ksweep_table.py results/a40 --assume-pin-defaults --exclude-job 22569403
+```
+
+**New under `code/`, all variants, no original edited:** `run_benchmark.v4.py`
+(async state requested and recorded, rung `ngram_gpu`, `--domain`,
+`--per-request-spec`), `make_domains.py`, `ksweep.sh`, `submit_ksweep.sh`,
+`ksweep_table.py`, `push_ksweep.sh`. v4 was made from v3 by asserted string
+replacement, each anchor required to match exactly once.
+
+**`RULES.md` section 4** now carries the async-scheduling rule agreed on
+2 Nov.
+
+**Tested, and not.** Everything was exercised on a laptop against a stub
+`vllm` module: the full arm loop, run ids, both guards, the per-request
+files, the incomplete-job exit, the submitter's dry run, the table. Nothing
+has run on Delta. The option names (`async_scheduling`,
+`per_request_spec_decode_metrics`, method `ngram_gpu`,
+`CompletionOutput.spec_decode_metrics`) were read from the vLLM source at
+`bf13ecc2f`, not observed in a run. First job must be a `LIMIT=5` smoke.
+
+**Cost estimate for the record, so it can be scored later:** default
+all-domain grid, 18 arms per job, three jobs, floor 9.2 GPU hours wall and
+4.6 charged on A40. Built from 7.9, 9.3 and 17.2 seconds per prompt (the
+filed off arms) plus an assumed 3 minutes of load per arm.
+
+---
+
 ## 2 Nov 2026 — literature settled, two assumptions withdrawn, plan rewritten
 
 No jobs run, no GPU hours spent. Three documents' worth of reading, recorded in

@@ -88,6 +88,47 @@ Budget in the note.
 
 ---
 
+## The k sweep, 12 Nov 2026: does adaptive k help at all
+
+The TA's question. Scripts are written and tested against a stub engine, not
+yet on Delta. Read `notes/2026-11-12-independent-evaluation-and-k-sweep.md`.
+
+What the filed rows already say (`python3 code/ksweep_table.py results/a40
+--assume-pin-defaults --exclude-job 22569403`): DFlash's best k is 7, the
+largest tested, in all three buckets, so within what was measured there is
+nothing for an adaptive k to adapt to. k = 11 and 15 never ran at concurrency
+1, and n-gram has k = 5 only.
+
+- [ ] Pull the repo on Delta; `python3 code/make_domains.py --check` and
+      record the per-domain counts at 2K, 8K and 32K in `LOG.md`.
+- [ ] One smoke job before the grid: `bash submit_ksweep.sh BUCKETS=2K
+      LIMIT=5 K_NGRAM=5 K_DFLASH=7 GO=1` (five arms, about 20 minutes). It is the first run of `ngram_gpu`, of an explicit
+      `async_scheduling=False`, and of harness v4 on a real engine.
+- [ ] The three all-domain jobs (`bash submit_ksweep.sh`, then `GO=1`). Floor
+      4.6 charged A40 hours, budget 9. Say whose allocation before submitting.
+- [ ] Per-domain jobs with cut k lists, once the 100 hours are confirmed.
+- [ ] `PC=off` on one 2K job: the prefix-caching-off control, prediction
+      already registered (within 2%).
+- [ ] Decide from `ksweep_table.py` table 3 whether adaptive k stays in the
+      contribution. If the best k is one value per rung, it does not.
+- [ ] `check_lossless` variant that parses `ngram_gpu` and `_d<domain>` file
+      names.
+
+From the 11 Nov outside evaluation, not yet decided by the two of us:
+
+- [ ] Lead with the measurement study and drop the router as the claimed
+      contribution? The evaluation's verdict is "not a paper as it stands;
+      workshop measurement note after controls".
+- [ ] Do not switch to a 27B target (it discards every filed number and needs
+      an aarch64 build).
+- [ ] Is DFlash training code public? If yes, the 1.6K-sample long-context
+      fine-tune of the Qwen3-8B head is the experiment that decides whether
+      the 32K inversion is about cost or about training length.
+- [ ] Read MLSYSIM (arXiv:2607.02558) before claiming nobody predicts
+      speculative decoding across hardware.
+
+---
+
 ## Immediate, no GPU
 
 - [ ] **Patch `check_lossless`'s verdict block.** The control and main sections

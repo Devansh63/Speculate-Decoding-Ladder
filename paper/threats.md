@@ -189,3 +189,43 @@ they are read together.**
 PR #54801 merged, Sequoia Section 4.2.3, a possible published WhiFlash at
 2026.findings-emnlp.633, and whether "Windowed-MTP" exists. Only the first two
 can change the claim.
+
+## Added 12 Nov 2026, from the outside evaluation
+
+Sources for these three were read through a summarising fetch of the arXiv
+HTML, the model card and the GitHub pages on 11 Nov, not by eye. See
+`notes/2026-11-12-independent-evaluation-and-k-sweep.md`.
+
+**19. The acceptance half of the 32K inversion may be a training-length
+artifact.** DFlash's own Table 4 (arXiv:2602.06036, section 5.4): the base
+Qwen3.5-27B drafter is trained at 3,072 tokens, degrades past about 4K, and
+recovers after a fine-tune on 1.6K LongAlign samples (gov_report at 32K, 2.09
+to 3.56 acceptance length). We run the stock Qwen3-8B head at up to ten times
+its training length. Applying that recovery to our measured tau, with our
+measured step cost held fixed, puts DFlash at roughly 1.15x to 1.42x at 32K,
+above n-gram. The estimate crosses a model and a benchmark. Untested. It is
+the most likely single reason a reviewer rejects the inversion as stated.
+
+**20. The cost half is also being worked on upstream.** The defence against
+threat 19 is that a fine-tune leaves drafting cost untouched. The current
+`z-lab/Qwen3.5-27B-DFlash` card describes a retrain with sliding-window
+attention at 40k sequence length, and vLLM PR #61261 (open) bounds DFlash
+draft attention to a window. Neither reports cost against context and the
+PR's window is 32K, so neither touches our numbers. But "drafting cost grows
+with context" is a statement about this head in this build, and C9's
+mechanism is still open.
+
+**21. A context break-even crossing inside vLLM is already on record.** RFC
+#48627 reports speculation against no speculation from 0.79x to 1.10x across
+context 400 to 4000 for an MTP drafter on Gemma-4-31B, crossing near 1900.
+Together with OWL's 0.81x for EAGLE-3, "a trained drafter drops below 1.0x
+as context grows" cannot be claimed as ours in any form. What remains ours is
+the decomposition and the opposite-signed pair.
+
+**A correction to how gains have been summarised.** Averaging per-bucket
+speedups understates what a per-bucket choice is worth, because long
+requests take longer and are where the fixed choice is wrong. By time, on a
+uniform mix, best per bucket is 12.1% over the best fixed rung, and the best
+fixed rung is n-gram, not DFlash. Any oracle or policy gain in the paper
+should be request-time-weighted and say so. Single realization, no interval,
+end to end including prefill.
