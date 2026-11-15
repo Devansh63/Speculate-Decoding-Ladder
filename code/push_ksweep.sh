@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-ROOT=/projects/bikd/$USER/Speculative_Ladder
+ROOT=${LADDER_ROOT:-/projects/bikd/$USER/Speculative_Ladder}
 REPO=${REPO:-$ROOT/repo}
 MSG=${1:-"results: k sweep outputs from Delta"}
 
@@ -47,7 +47,7 @@ fi
 python3 code/ksweep_table.py results/*_ksweep* > results/ksweep_table.txt 2>&1 \
   || echo "ksweep_table.py failed; raw rows still committed"
 
-for f in /projects/bikd/dagraw2/Speculative_Ladder/logs/phase0-ksweep-*.out; do
+for f in /projects/bikd/dagraw2/Speculative_Ladder/logs/phase0-ksweep-*.out "$ROOT"/logs/phase0-ksweep-*.out; do
   [ -e "$f" ] || continue
   # The log directory is shared; take only this user's jobs.
   [ "$(stat -c %U "$f" 2>/dev/null)" = "$USER" ] || continue

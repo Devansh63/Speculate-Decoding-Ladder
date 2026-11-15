@@ -62,7 +62,9 @@ unconfirmed).
 
 Phase 1, no GPU:
 
-- [ ] Confirm whether the 100 hours are DeltaAI (GH200, ARM) or Delta A100.
+- [x] Confirm whether the 100 hours are DeltaAI (GH200, ARM) or Delta A100.
+      **DeltaAI, 100 hours each, access confirmed 15 Nov.** Bring-up steps in
+      `env/deltaai.md`; the build has not been run.
 - [ ] Fit `R(k, L) = R_draft(L) + c(L) * k` and `tau(k, L)` per rung from the
       filed A40 sweeps; predict every k to 15 including 0, the best pair per
       bucket, and the static router's gain over fixed k=7. Register as frozen

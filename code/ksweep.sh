@@ -114,7 +114,7 @@ if [ "$DOMAIN" = "all" ]; then
   DATA=${LADDER_DATA:-$SHARED/ladder/data/longbench_v2}
   DOMARG=""
 else
-  DATA=${LADDER_DATA:-/projects/bikd/$USER/Speculative_Ladder/data/domains/$DOMAIN}
+  DATA=${LADDER_DATA:-${LADDER_DOMROOT:-/projects/bikd/$USER/Speculative_Ladder/data/domains}/$DOMAIN}
   DOMARG="--domain $DOMAIN"
 fi
 DATASET=$DATA/longbench_v2_${BUCKET}.jsonl
@@ -156,7 +156,13 @@ if [ -n "${LOOP:-}" ]; then
   XARGS="$XARGS --loop-timing"
 fi
 
-module load cray-python/3.12.12
+# A venv built by build_deltaai.sh records the modules it was built under.
+# Otherwise this is Delta, where the venvs sit on cray-python 3.12.12.
+if [ -f "$VENV/ladder_modules" ]; then
+  while IFS= read -r M; do [ -n "$M" ] && module load "$M"; done < "$VENV/ladder_modules"
+else
+  module load cray-python/3.12.12
+fi
 if [ ! -x "$VENV/bin/python3" ]; then
   echo "ABORT: no usable virtualenv at $VENV"; exit 1
 fi
@@ -174,14 +180,19 @@ CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d
 case "$GPUNAME" in
   *A40*)  GPUTAG=a40 ;;
   *A100*) GPUTAG=a100 ;;
+  *GH200*) GPUTAG=gh200 ;;
   *H200*) GPUTAG=h200 ;;
   *H100*) GPUTAG=h100 ;;
   *)      GPUTAG=$(echo "$GPUNAME" | tr -c 'A-Za-z0-9' '_' | tr 'A-Z' 'a-z') ;;
 esac
-case "$CAP" in
-  80|86) echo "compute capability $CAP is covered by this build" ;;
-  *) echo "ABORT: compute capability $CAP has no cubin in this vLLM build."
-     echo "       See env/gpu-support.md."
+# Which compute capabilities the venv in use was compiled for. The Delta
+# multiarch venv is sm_80 and sm_86 as far as anything has been run; the
+# DeltaAI venv is sm_90 only. deltaai_env.sh sets LADDER_CAPS=90.
+CAPS_OK=${LADDER_CAPS:-"80 86"}
+case " $CAPS_OK " in
+  *" $CAP "*) echo "compute capability $CAP is covered by this build ($CAPS_OK)" ;;
+  *) echo "ABORT: compute capability $CAP is not in LADDER_CAPS='$CAPS_OK'."
+     echo "       See env/gpu-support.md and env/deltaai.md."
      exit 1 ;;
 esac
 

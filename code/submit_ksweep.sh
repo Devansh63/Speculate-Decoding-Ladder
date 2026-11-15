@@ -37,7 +37,7 @@ for kv in "$@"; do
 done
 
 SHARED=${LADDER_SHARED:-/projects/bikd/dagraw2/Speculative_Ladder}
-MINE=/projects/bikd/$USER/Speculative_Ladder
+MINE=${LADDER_ROOT:-/projects/bikd/$USER/Speculative_Ladder}
 HERE=$(cd "$(dirname "$0")" && pwd)
 
 GO=${GO:-0}
@@ -58,8 +58,23 @@ export LADDER_VENV=${LADDER_VENV:-$SHARED/vllm_env_multiarch}
 case "$PART" in
   gpuA40*)  GPUTAG=a40;  RATE=0.5; EXCLUDE=${EXCLUDE:-gpub073} ;;
   gpuA100*) GPUTAG=a100; RATE=1.0; EXCLUDE=${EXCLUDE:-} ;;
-  *) echo "PART=$PART: this build has kernels for A40 and A100 only (env/gpu-support.md)" >&2; exit 1 ;;
+  ghx4*)
+    # DeltaAI. Everything site-specific comes from deltaai_env.sh.
+    GPUTAG=gh200; RATE=1.0; EXCLUDE=${EXCLUDE:-}
+    [ "$PART" = "ghx4-interactive" ] && RATE=2.0
+    if [ -z "${LADDER_ROOT:-}" ] || [ -z "${ACCOUNT:-}" ]; then
+      echo "PART=$PART needs the DeltaAI environment: PROJ=<code> ACCOUNT=<name> source deltaai_env.sh" >&2
+      exit 1
+    fi
+    mkdir -p "$LADDER_ROOT/logs"
+    # 16 cores and 64 GB is the documented single-GPU request and stays
+    # inside one GH200's share (72 cores, about 110 GB), so one unit is charged.
+    SITE_ARGS=(--account="$ACCOUNT" --mem=64g --cpus-per-task=16
+               --output="$LADDER_ROOT/logs/phase0-ksweep-%j.out")
+    ;;
+  *) echo "PART=$PART: known partitions are gpuA40x4, gpuA100x4 (Delta) and ghx4 (DeltaAI)" >&2; exit 1 ;;
 esac
+SITE_ARGS=(${SITE_ARGS[@]+"${SITE_ARGS[@]}"})
 
 for f in ksweep.sh run_benchmark.v4.py; do
   [ -f "$HERE/$f" ] || { echo "missing $HERE/$f" >&2; exit 1; }
@@ -90,7 +105,8 @@ fi
 sec_per_prompt () { case "$1" in 2K) echo 7.9 ;; 8K) echo 9.3 ;; 32K) echo 17.2 ;; esac; }
 
 echo "partition $PART ($GPUTAG), assumed charge factor $RATE per GPU hour"
-echo "allocation: $USER under bikd-delta-gpu"
+echo "allocation: $USER under ${ACCOUNT:-bikd-delta-gpu}"
+[ "$GPUTAG" = "gh200" ] && echo "NOTE: minutes below are built from A40 timings. No GH200 timing exists yet."
 echo "arms per job: $ARMS  (rungs: $RUNGS)"
 echo "  k ngram: $K_NGRAM | k ngram_gpu: $K_NGRAM_GPU | k dflash: $K_DFLASH"
 echo
@@ -107,7 +123,8 @@ for B in $BUCKETS; do
   esac
   for D in $DOMAINS; do
     if [ "$D" = "all" ]; then
-      FILE=$SHARED/ladder/data/longbench_v2/longbench_v2_${B}.jsonl
+      FILE=${LADDER_DATA:-$SHARED/ladder/data/longbench_v2}/longbench_v2_${B}.jsonl
+      [ -s "$FILE" ] || echo "WARN  $B: no workload at $FILE (the job would abort)"
       case "$B" in 32K) N=${LIMIT:-25} ;; *) N=${LIMIT:-50} ;; esac
       OUT=$MINE/results/${GPUTAG}_ksweep
     else
@@ -153,7 +170,9 @@ while IFS='|' read -r B D C N HRS OUT; do
   # Variables go through the environment, not the --export list, so values
   # holding spaces (the k lists) survive intact.
   JID=$(BUCKET=$B DOMAIN=$D CONC=$C LIMIT=$N LADDER_OUT=$OUT \
+        LADDER_DOMROOT=$DOMROOT \
         sbatch --parsable --partition="$PART" --time="$(printf '%02d' "$HRS"):00:00" \
+               ${SITE_ARGS[@]+"${SITE_ARGS[@]}"} \
                ${EX[@]+"${EX[@]}"} --export=ALL ksweep.sh)
   echo "submitted $JID  $B $D c=$C n=$N -> $OUT"
 done < "$PLAN"

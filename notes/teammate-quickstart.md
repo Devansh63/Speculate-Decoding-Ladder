@@ -268,6 +268,11 @@ A k-sweep job exits non-zero if any arm wrote no row, so `FAILED` in `sacct`
 means read the log, and `COMPLETED` means every arm has a row. Table 3 of
 `ksweep_table.py` is the answer to "does adaptive k help".
 
+### DeltaAI
+
+DeltaAI is ARM and needs its own build of vLLM. The steps, and what is
+still unverified, are in `env/deltaai.md`.
+
 ### Pushing results to GitHub
 
 Optional, and it needs your own token so the commits are attributed to you.

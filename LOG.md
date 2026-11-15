@@ -70,6 +70,35 @@ directory overwrites the first.
 
 ---
 
+## 15 Nov 2026: DeltaAI bring-up scripts (plan items E19 to E21)
+
+No jobs run, no GPU hours spent. Access to DeltaAI is confirmed, 100 hours
+each, which answers the open question from 2 Nov: the hours are on GH200
+nodes, which are ARM.
+
+**New:** `code/build_deltaai.sh` (the pinned commit, torch and triton, built
+for aarch64 and `sm_90` into a project-owned venv; a variant of
+`rebuild_multiarch.sh`, which is untouched), `code/deltaai_env.sh` (sourced;
+exports the `LADDER_*` paths and lists what is missing), `env/deltaai.md`.
+
+**Changed:** `code/ksweep.sh` reads the allowed compute capabilities from
+`LADDER_CAPS` (default `80 86`, so Delta behaviour is the same), loads the
+modules a venv records in `ladder_modules`, and tags a GH200. It had never
+run, so this is not an edit to a script that produced a result.
+`code/submit_ksweep.sh` takes `PART=ghx4` and passes the account, 16 cores,
+64 GB and a log path under `LADDER_ROOT`. `code/push_ksweep.sh` follows
+`LADDER_ROOT`.
+
+**Checked from the package indexes:** aarch64 wheels exist for torch
+2.13.0+cu130, triton 3.7.1 and tokenspeed-triton 3.8.10.post20260920.
+
+**Not run:** the build, on any machine. Unknowns are listed at the top of
+`build_deltaai.sh`: the module that provides `nvcc`, whether every runtime
+dependency has an aarch64 wheel, and whether vLLM's CMake builds with the
+Cray gcc on ARM.
+
+---
+
 ## 12 Nov 2026: outside evaluation recorded, harness v4, the k-sweep scripts
 
 No jobs run, no GPU hours spent.

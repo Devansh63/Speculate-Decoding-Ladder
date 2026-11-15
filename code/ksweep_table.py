@@ -57,7 +57,7 @@ PIN_DEFAULT_ASYNC = {"off": True, "dflash": True, "ngram_gpu": True, "ngram": Fa
 
 def gpu_tag(rec):
     g = ((rec.get("env") or {}).get("gpu") or "").upper()
-    for t in ("A40", "A100", "H200", "H100"):
+    for t in ("A40", "A100", "GH200", "H200", "H100"):
         if t in g:
             return t.lower()
     return g.lower() or "unknown"
