@@ -92,7 +92,19 @@ run, so this is not an edit to a script that produced a result.
 **Checked from the package indexes:** aarch64 wheels exist for torch
 2.13.0+cu130, triton 3.7.1 and tokenspeed-triton 3.8.10.post20260920.
 
-**Not run:** the build, on any machine. Unknowns are listed at the top of
+**Later the same day: DeltaAI moves to vLLM 0.33.0 on Model Runner V2.** The
+plan was always to use V2 there, and the old pin cannot give both rungs one
+runner. New: `code/install_deltaai.sh` (the PyPI aarch64 wheel plus torch
+2.14.0+cu130; minutes, no compile) and `code/run_benchmark.v5.py` (requires
+the V2 flag, records the resolved runner, aborts on a V1 fallback).
+`ksweep.sh` and `submit_ksweep.sh` switch on `LADDER_MRV2=1`, which
+`deltaai_env.sh` sets: harness v5, rungs `ngram_gpu dflash`, no sync off arm.
+`ksweep_table.py` now refuses a ratio across vLLM versions or runners.
+`build_deltaai.sh` is kept as the source-build fallback. Reasons and what was
+read from the `v0.33.0` source are in `env/deltaai.md`. Not verified: which
+CUDA build of torch the PyPI wheel expects.
+
+**Not run:** the install or the build, on any machine. Unknowns are listed at the top of
 `build_deltaai.sh`: the module that provides `nvcc`, whether every runtime
 dependency has an aarch64 wheel, and whether vLLM's CMake builds with the
 Cray gcc on ARM.

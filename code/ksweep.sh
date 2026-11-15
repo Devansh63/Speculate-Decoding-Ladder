@@ -72,7 +72,15 @@ CONC=${CONC:-1}
 DOMAIN=${DOMAIN:-all}
 SEED=${SEED:-1234}
 MAXTOK=${MAXTOK:-256}
-RUNGS=${RUNGS:-"ngram ngram_gpu dflash"}
+# LADDER_MRV2=1: vLLM 0.33.0 on Model Runner V2 with harness v5 (DeltaAI).
+# There `ngram` and `ngram_gpu` are the same GPU speculator and every arm runs
+# async, so the default drops CPU n-gram and with it the sync off baseline.
+MRV2=${LADDER_MRV2:-0}
+if [ "$MRV2" = "1" ]; then
+  RUNGS=${RUNGS:-"ngram_gpu dflash"}
+else
+  RUNGS=${RUNGS:-"ngram ngram_gpu dflash"}
+fi
 K_NGRAM=${K_NGRAM:-"1 2 5 7 11"}
 K_NGRAM_GPU=${K_NGRAM_GPU:-$K_NGRAM}
 K_DFLASH=${K_DFLASH:-"1 2 4 7 11 15"}
@@ -103,10 +111,11 @@ OUT=$LADDER_OUT
 # The harness comes from the directory the job was submitted from (your clone
 # of the repository), because the shared scripts directory is not writable by
 # teammates and does not hold v4.
-RUN=${LADDER_RUN:-${SLURM_SUBMIT_DIR:-$(pwd)}/run_benchmark.v4.py}
-if ! grep -q 'HARNESS_VERSION = "v4' "$RUN" 2>/dev/null; then
-  echo "ABORT: $RUN is not harness v4. Submit from the repository's code/"
-  echo "       directory or set LADDER_RUN to run_benchmark.v4.py."
+if [ "$MRV2" = "1" ]; then HV=v5; else HV=v4; fi
+RUN=${LADDER_RUN:-${SLURM_SUBMIT_DIR:-$(pwd)}/run_benchmark.$HV.py}
+if ! grep -q "HARNESS_VERSION = \"$HV" "$RUN" 2>/dev/null; then
+  echo "ABORT: $RUN is not harness $HV (LADDER_MRV2=$MRV2). Submit from the"
+  echo "       repository's code/ directory or set LADDER_RUN."
   exit 1
 fi
 
@@ -169,7 +178,7 @@ fi
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
 
-export VLLM_USE_V2_MODEL_RUNNER=0
+export VLLM_USE_V2_MODEL_RUNNER=$MRV2
 export VLLM_CACHE_ROOT=${LADDER_CACHE:-$SHARED/.vllm_cache}
 
 MODEL=${LADDER_MODEL:-$HF/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218}
@@ -199,7 +208,7 @@ esac
 mkdir -p "$OUT" "$VLLM_CACHE_ROOT"
 
 echo "venv: $VENV"
-echo "harness: $RUN"
+echo "harness: $RUN (model runner V2: $MRV2)"
 echo "gpu='$GPUNAME' cap=$CAP tag=$GPUTAG host=$(hostname)"
 echo "bucket=$BUCKET domain=$DOMAIN conc=$CONC limit=$LIMIT maxtok=$MAXTOK seed=$SEED job=${SLURM_JOB_ID:-none}"
 echo "rungs='$RUNGS' k_ngram='$K_NGRAM' k_ngram_gpu='$K_NGRAM_GPU' k_dflash='$K_DFLASH'"
@@ -236,7 +245,7 @@ has_rung () { case " $RUNGS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 # Baselines first. Without the off arm there is no speedup; without the
 # sync off arm there is no fair one for CPU n-gram.
 run off 0 ""
-if has_rung ngram; then
+if has_rung ngram && [ "$MRV2" != "1" ]; then
   run off 0 "--async-scheduling off"
 fi
 

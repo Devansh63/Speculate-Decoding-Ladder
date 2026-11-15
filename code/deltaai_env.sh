@@ -28,7 +28,10 @@ fi
 
 export PROJ ACCOUNT
 export LADDER_ROOT=${LADDER_ROOT:-/work/nvme/$PROJ/$USER/Speculative_Ladder}
-export LADDER_VENV=${LADDER_VENV:-$LADDER_ROOT/vllm_env_gh200}
+export LADDER_VENV=${LADDER_VENV:-$LADDER_ROOT/vllm033_gh200}
+# vLLM 0.33.0 on Model Runner V2 with harness v5. Set LADDER_MRV2=0 and point
+# LADDER_VENV at a build_deltaai.sh venv to run the old pin instead.
+export LADDER_MRV2=${LADDER_MRV2:-1}
 export LADDER_CACHE=${LADDER_CACHE:-$LADDER_ROOT/.vllm_cache}
 export LADDER_CAPS=${LADDER_CAPS:-90}
 mkdir -p "$LADDER_ROOT"/{logs,results,data,hf/hub} "$LADDER_CACHE"
@@ -61,14 +64,14 @@ echo "LADDER_ROOT  $LADDER_ROOT"
 echo "LADDER_VENV  $LADDER_VENV"
 echo "LADDER_HF    $LADDER_HF"
 echo "LADDER_DATA  $LADDER_DATA"
-echo "LADDER_CAPS  $LADDER_CAPS    account $ACCOUNT"
+echo "LADDER_CAPS  $LADDER_CAPS    account $ACCOUNT    model runner V2: $LADDER_MRV2"
 echo
 
 _OK=1
 if [ ! -x "$LADDER_VENV/bin/python3" ]; then
   _OK=0
-  echo "MISSING venv. Build it (login node, tmux, no GPU hours):"
-  echo "    PROJ=$PROJ bash build_deltaai.sh"
+  echo "MISSING venv. Install it (login node, minutes, no GPU hours):"
+  echo "    PROJ=$PROJ bash install_deltaai.sh"
 fi
 if [ ! -r "$LADDER_HF/$_QWEN/config.json" ]; then
   _OK=0

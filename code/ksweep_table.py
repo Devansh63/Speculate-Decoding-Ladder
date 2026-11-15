@@ -86,9 +86,12 @@ def pc_state(rec):
 
 def config_sig(rec):
     """Everything besides rung, k and async that must match inside a ratio."""
+    env = rec.get("env") or {}
     return (rec.get("limit"), rec.get("max_tokens"), pc_state(rec),
             rec.get("temperature", 0.0), bool(rec.get("loop_timing")),
-            rec.get("prompt_style"), rec.get("per_request_spec", "none"))
+            rec.get("prompt_style"), rec.get("per_request_spec", "none"),
+            # engine version and model runner: a ratio never crosses either
+            env.get("vllm"), str(env.get("runner_v2")))
 
 
 def load(dirs, assume, exclude_jobs):

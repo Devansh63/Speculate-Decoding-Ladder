@@ -54,8 +54,8 @@ ARCHS=${ARCHS:-"9.0"}
 MAX_JOBS=${MAX_JOBS:-8}
 PYVER=${PYVER:-3.12}
 TORCH_SPEC=${TORCH_SPEC:-"torch==2.13.0"}
-TRITON_SPEC=${TRITON_SPEC:-"triton==3.7.1"}
-TS_TRITON_SPEC=${TS_TRITON_SPEC:-"tokenspeed-triton==3.8.10.post20260920"}
+TRITON_SPEC=${TRITON_SPEC-"triton==3.7.1"}
+TS_TRITON_SPEC=${TS_TRITON_SPEC-"tokenspeed-triton==3.8.10.post20260920"}
 
 LADDER_ROOT=${LADDER_ROOT:-/work/nvme/$PROJ/$USER/Speculative_Ladder}
 SRCDIR=${SRCDIR:-$LADDER_ROOT/vllm-build}
@@ -255,8 +255,13 @@ echo
 # The Delta venvs carry these two exact versions (env/gpu-support.md). pip may
 # have resolved something newer; put them back and say what changed.
 echo "=== [5/6] matching the triton pins of the Delta build ==="
-python3 -m pip install "$TRITON_SPEC" "$TS_TRITON_SPEC" \
-  || echo "WARNING: could not pin triton to the Delta versions; recorded below"
+if [ -n "$TRITON_SPEC$TS_TRITON_SPEC" ]; then
+  # shellcheck disable=SC2086
+  python3 -m pip install $TRITON_SPEC $TS_TRITON_SPEC \
+    || echo "WARNING: could not pin triton to the Delta versions; recorded below"
+else
+  echo "triton pins skipped (both specs empty)"
+fi
 python3 -m pip check || echo "NOTE: pip check reports conflicts above; read them"
 echo
 

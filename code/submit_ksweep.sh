@@ -47,7 +47,12 @@ DOMAINS=${DOMAINS:-all}
 CONCS_2K=${CONCS_2K:-1}
 CONCS_8K=${CONCS_8K:-1}
 CONCS_32K=${CONCS_32K:-1}
-RUNGS=${RUNGS:-"ngram ngram_gpu dflash"}
+MRV2=${LADDER_MRV2:-0}
+if [ "$MRV2" = "1" ]; then
+  RUNGS=${RUNGS:-"ngram_gpu dflash"}; HV=v5
+else
+  RUNGS=${RUNGS:-"ngram ngram_gpu dflash"}; HV=v4
+fi
 K_NGRAM=${K_NGRAM:-"1 2 5 7 11"}
 K_NGRAM_GPU=${K_NGRAM_GPU:-$K_NGRAM}
 K_DFLASH=${K_DFLASH:-"1 2 4 7 11 15"}
@@ -76,7 +81,7 @@ case "$PART" in
 esac
 SITE_ARGS=(${SITE_ARGS[@]+"${SITE_ARGS[@]}"})
 
-for f in ksweep.sh run_benchmark.v4.py; do
+for f in ksweep.sh run_benchmark.$HV.py; do
   [ -f "$HERE/$f" ] || { echo "missing $HERE/$f" >&2; exit 1; }
 done
 
@@ -85,7 +90,7 @@ count () { echo $#; }
 has_rung () { case " $RUNGS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 ARMS=1
 # shellcheck disable=SC2086
-if has_rung ngram;     then ARMS=$((ARMS + 1 + $(count $K_NGRAM))); fi
+if has_rung ngram;     then ARMS=$((ARMS + $(count $K_NGRAM))); [ "$MRV2" = "1" ] || ARMS=$((ARMS + 1)); fi
 # shellcheck disable=SC2086
 if has_rung ngram_gpu; then ARMS=$((ARMS + $(count $K_NGRAM_GPU))); fi
 # shellcheck disable=SC2086
@@ -107,7 +112,7 @@ sec_per_prompt () { case "$1" in 2K) echo 7.9 ;; 8K) echo 9.3 ;; 32K) echo 17.2 
 echo "partition $PART ($GPUTAG), assumed charge factor $RATE per GPU hour"
 echo "allocation: $USER under ${ACCOUNT:-bikd-delta-gpu}"
 [ "$GPUTAG" = "gh200" ] && echo "NOTE: minutes below are built from A40 timings. No GH200 timing exists yet."
-echo "arms per job: $ARMS  (rungs: $RUNGS)"
+echo "arms per job: $ARMS  (rungs: $RUNGS; harness $HV)"
 echo "  k ngram: $K_NGRAM | k ngram_gpu: $K_NGRAM_GPU | k dflash: $K_DFLASH"
 echo
 

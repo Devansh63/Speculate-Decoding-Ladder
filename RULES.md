@@ -118,6 +118,13 @@ refuses to start without it. Leave it alone: with the V2 runner, n-gram
 silently falls back to the stable runner while DFlash stays on V2, so the two
 rungs would be measured on different code paths.
 
+**DeltaAI is the one exception to the runner flag, and it is explicit.** On
+DeltaAI the project runs vLLM 0.33.0 with `VLLM_USE_V2_MODEL_RUNNER=1`
+through harness v5, which refuses to start on any other value and aborts if
+the engine falls back to V1 (`env/deltaai.md`, decided 15 Nov 2026). The rule
+is unchanged in substance: every arm of a job on one runner, set by hand,
+never left to the engine. On Delta, with the `bf13ecc2f` venvs, it stays 0.
+
 **Async scheduling is the second code path, and it is not pinned by default.**
 Every arm in a reported comparison runs with the same async-scheduling state.
 The harness records the resolved state per run; a comparison across states is
