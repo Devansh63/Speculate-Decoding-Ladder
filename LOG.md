@@ -70,6 +70,54 @@ directory overwrites the first.
 
 ---
 
+## 16 Nov 2026: dtai2 revised after an outside review (not submitted)
+
+No jobs run, no GPU hours spent. An adversarial read-only review of commit
+`44e5a02` (repository, vLLM at tag `v0.33.0`, NCSA's DeltaAI pages) returned
+"run with changes". Findings and what changed:
+`notes/2026-11-16-dtai2-proposed-jobs.md`, section 10.
+
+**Found:** harness v5 reads `RequestOutput.metrics` under field names vLLM
+0.33.0 does not have, so it reports no per-request timing although the engine
+records it; v5 warms up on the first two measured prompts with prefix caching
+on, so their timed prefill is a cache hit; the three jobs of each kind shared
+one results directory, which makes `ksweep.sh`'s row count fail in each
+(reproduced with stubs: both exit 1); `SEED`, `TEMP`, `PLMIN`, `PLMAX` in the
+submitting shell reached every cell; the `k0` cell does not measure "upkeep
+alone"; the claim that no speculative arm was ever repeated is false (ten
+were, across jobs, within 0.03 to 0.8%); the 32K fit identifies P and t_d
+only with help from the engine logs, and not R_draft or c.
+
+**Changed:** new `code/run_benchmark.v5c.py` (a variant of v5b: engine timing
+under the tag's names, warm-up on two prompts that are not measured, abort on
+an unreadable schedule or on drafts under an all-zero schedule), used by every
+dtai2 cell; `dtai2_bundle.sh` (bucket in every results directory, wider
+`unset` list, domain cells measure the file less its two warm-up prompts);
+`nsys_v5.py` (profiles the harness named in `LADDER_NSYS_HARNESS`);
+`submit_dtai2.sh` (engine start from `SMOKE_LOG`, stricter smoke gate, 4 h
+floor for the profile job, prompt counts plus two); `test_dtai2.sh` (74
+checks, all pass; the two mutations that had slipped through now fail).
+`run_benchmark.v5b.py` is kept and no longer used. Untouched: `ksweep.sh`,
+`run_benchmark.v5.py`, `make_domains.py`, `deltaai_env.sh`.
+
+**Cost, restated (RULES section 7):** 73.8 GPU-hours at A40 speed with
+3 minutes of engine start per arm, of which engine start is 13.8; about 88
+at 6 minutes. Still a ceiling from per-arm arithmetic, not a floor from a
+job that ran. Whose allocation: not decided.
+
+**Before anything is submitted:** the smoke job validated v5, so rerun it on
+v5c, then submit in the order of the note's section 7.
+
+```bash
+LADDER_RUN=$PWD/run_benchmark.v5c.py bash submit_ksweep.sh PART=ghx4 BUCKETS=2K LIMIT=5 K_NGRAM=5 K_DFLASH=7 GO=1
+bash submit_dtai2.sh SMOKE=<dir> SMOKE_LOG=<log> BUNDLES=c1-2K CELLS="k0 pre" GO=1
+```
+
+**Not verified:** anything on DeltaAI, including that the all-zero schedule
+runs and that the timing fields are non-zero in a real row.
+
+---
+
 ## 16 Nov 2026: proposed DeltaAI job set, dtai2 (not submitted)
 
 No jobs run, no GPU hours spent. Ten proposed DeltaAI jobs, to be submitted

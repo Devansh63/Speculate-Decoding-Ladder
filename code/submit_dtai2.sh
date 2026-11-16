@@ -35,7 +35,11 @@
 #   LOOPB     1 = add the second per-prompt timing pass to the c1 jobs. Off by
 #             default: decided 16 Nov to run everything once first. To add it
 #             later on its own: BUNDLES="c1-2K c1-8K c1-32K" CELLS=loopB LOOPB=1
-#   LOAD_MIN  assumed minutes of engine start per arm, default 3
+#   LOAD_MIN  minutes of engine start per arm. Default auto: measured from
+#             SMOKE_LOG if given (the slowest arm's wall time less its timed
+#             run and warm-up), else 3. Engine start is not scaled by
+#             GH200_FACTOR, and at GH200 speed it is a large share of the total.
+#   SMOKE_LOG the smoke job's Slurm log (logs/phase0-ksweep-<job>.out)
 #   PART      default ghx4. ghx4-interactive charges 2x and allows one job.
 #
 #   GH200_FACTOR  GH200 time as a fraction of A40 time, for the estimate.
@@ -65,7 +69,7 @@ BUDGET_H=${BUDGET_H:-200}
 FORCE=${FORCE:-0}
 PART=${PART:-ghx4}
 BUNDLES=${BUNDLES:-"c1-2K profile c1-8K c1-32K conc-2K conc-8K conc-32K dom-2K dom-8K dom-32K"}
-LOAD_MIN=${LOAD_MIN:-3}
+LOAD_MIN=${LOAD_MIN:-auto}
 
 # ------------------------------------------------------------ environment
 miss=0
@@ -82,7 +86,7 @@ if [ "$(uname -m)" != "aarch64" ] && [ "${LADDER_TEST_HOST:-0}" != "1" ]; then
   exit 1
 fi
 [ "${LADDER_CAPS:-}" = "90" ] || { echo "LADDER_CAPS=${LADDER_CAPS:-unset}; on DeltaAI it is 90. source deltaai_env.sh" >&2; exit 1; }
-for v in LADDER_ROOT LADDER_VENV LADDER_HF LADDER_DATA LADDER_CACHE LADDER_DOMDATA; do
+for v in LADDER_ROOT LADDER_VENV LADDER_HF LADDER_DATA LADDER_CACHE LADDER_DOMDATA LADDER_RESULTS; do
   case "${!v:-}" in
     /projects/*) echo "$v=${!v} is under /projects, which a ghx4 job may not see. Use the copy under /work/nvme." >&2; exit 1 ;;
   esac
@@ -92,19 +96,20 @@ if [ "${LADDER_MRV2:-0}" != "1" ]; then
   echo "LADDER_MRV2=${LADDER_MRV2:-unset}: these bundles are for vLLM 0.33.0 on Model Runner V2." >&2
   exit 1
 fi
-for f in dtai2_bundle.sh ksweep.sh run_benchmark.v5.py run_benchmark.v5b.py nsys_v5.py; do
+for f in dtai2_bundle.sh ksweep.sh run_benchmark.v5c.py nsys_v5.py; do
   [ -f "$HERE/$f" ] || { echo "missing $HERE/$f (git pull?)" >&2; exit 1; }
 done
-grep -q 'HARNESS_VERSION = "v5b' "$HERE/run_benchmark.v5b.py" || { echo "run_benchmark.v5b.py is not harness v5b" >&2; exit 1; }
+grep -q 'HARNESS_VERSION = "v5c' "$HERE/run_benchmark.v5c.py" || { echo "run_benchmark.v5c.py is not harness v5c" >&2; exit 1; }
 [ -x "$LADDER_VENV/bin/python3" ] || { echo "no venv at $LADDER_VENV (point LADDER_VENV at the venv the smoke job used)" >&2; exit 1; }
 PY=$LADDER_VENV/bin/python3   # the login node's own python3 may be old
 
 # Prompts needed per bucket: the c=1 cells read 50 / 50 / 25, the
-# concurrency cells 128 / 128 / 48 (checked only if a conc bundle is asked for).
+# concurrency cells 128 / 128 / 48 (checked only if a conc bundle is asked
+# for), each plus two that harness v5c warms up on and does not measure.
 need () {
   case " $BUNDLES " in
-    *" conc-$1 "*) case "$1" in 2K|8K) echo 128 ;; 32K) echo 48 ;; esac ;;
-    *)             case "$1" in 2K|8K) echo 50 ;;  32K) echo 25 ;; esac ;;
+    *" conc-$1 "*) case "$1" in 2K|8K) echo 130 ;; 32K) echo 50 ;; esac ;;
+    *)             case "$1" in 2K|8K) echo 52 ;;  32K) echo 27 ;; esac ;;
   esac
 }
 for b in 2K 8K 32K; do
@@ -145,12 +150,22 @@ if not v5:
 bad = [r.get("run_id") for r in v5 if (r.get("resolved") or {}).get("use_v2_model_runner") is not True]
 asyncs = {str((r.get("resolved") or {}).get("async_scheduling")) for r in v5}
 rungs = sorted({r.get("rung") for r in v5})
-timed = sum(int(r.get("per_request_timing") or 0) for r in v5)
+timed = sum(int(r.get("per_request_engine_timing", r.get("per_request_timing")) or 0) for r in v5)
 print(f"SMOKE: {len(v5)} v5 rows, rungs {rungs}, async states {sorted(asyncs)}")
 print(f"SMOKE: requests with engine timing: {timed}"
-      + ("  (time to first token IS available on this build)" if timed else
-         "  (none; the pre cells are the only prefill measurement)"))
+      + ("  (per-request prefill and decode time ARE recorded)" if timed else
+         "  (none. Harness v5 reads field names vLLM 0.33.0 does not have; run the"
+         " smoke job on v5c, LADDER_RUN=$PWD/run_benchmark.v5c.py, to see them)"))
 ok = True
+vers = sorted({str((r.get("env") or {}).get("vllm")) for r in v5})
+if any(not v.startswith("0.33.0") for v in vers):
+    print(f"SMOKE: FAIL, vLLM versions {vers}; the dtai2 set is written for 0.33.0"); ok = False
+gpus = sorted({str((r.get("env") or {}).get("gpu")) for r in v5})
+if any("GH200" not in g and "H100" not in g for g in gpus):
+    print(f"SMOKE: WARNING, GPU names {gpus}: expected a GH200 (H100)")
+for r in v5:
+    if r.get("rung") != "off" and not (r.get("spec") or {}).get("drafts"):
+        print(f"SMOKE: FAIL, {r.get('run_id')} counted no drafts: the drafter did not run"); ok = False
 if bad:
     print(f"SMOKE: FAIL, not on Model Runner V2: {bad}"); ok = False
 if len(asyncs) != 1:
@@ -190,7 +205,7 @@ for f in files:
             r = json.loads(line)
             if (r.get("rung") == "off" and r.get("max_num_seqs") == 1 and r.get("max_tokens") == 256
                     and not r.get("loop_timing") and r.get("bucket") in a40 and r.get("limit")
-                    and "GH200" in str((r.get("env") or {}).get("gpu", ""))):
+                    and any(g in str((r.get("env") or {}).get("gpu", "")) for g in ("GH200", "H100"))):
                 ratios.append((r["elapsed_s"] / r["limit"]) / a40[r["bucket"]])
                 used.add(os.path.basename(os.path.dirname(f)))
     except Exception:
@@ -205,6 +220,50 @@ EOF
   else
     FACTOR=1.0
     FACTOR_SRC="no GH200 rows on disk yet: A40-speed ceiling"
+  fi
+fi
+
+# ------------------------------------------------------------ engine start
+# Per-arm overhead from the smoke job's log: ksweep.sh stamps each arm's start
+# ("### arm N ... HH:MM:SS") and prints `date` after the last one. Overhead =
+# the arm's wall time, less its timed run, less its two warm-up prompts
+# (priced at the timed run's seconds per prompt). The slowest arm is used.
+LOAD_SRC="set by LOAD_MIN"
+if [ "$LOAD_MIN" = "auto" ]; then
+  LOAD_MIN=3
+  LOAD_SRC="assumed; pass SMOKE_LOG=<the smoke job's log> to measure it"
+  if [ -n "${SMOKE_LOG:-}" ] && [ -n "${SMOKE:-}" ]; then
+    LM=$("$PY" - "$SMOKE_LOG" "$SMOKE" <<'EOF' 2>/dev/null || true
+import json, math, os, re, sys
+log, smoke = sys.argv[1], sys.argv[2]
+sf = os.path.join(smoke, "results.jsonl") if os.path.isdir(smoke) else smoke
+hms = lambda s: sum(int(x) * m for x, m in zip(s.split(":"), (3600, 60, 1)))
+starts, end = [], None
+for line in open(log, errors="replace"):
+    m = re.match(r"### arm \d+ .*\s(\d\d:\d\d:\d\d)\s*$", line)
+    if m:
+        starts.append(hms(m.group(1))); end = None; continue
+    m = re.match(r"[A-Z][a-z]{2} [A-Z][a-z]{2} +\d+ (\d\d:\d\d:\d\d) ", line)
+    if m and starts:
+        end = hms(m.group(1))
+rows = [json.loads(l) for l in open(sf) if l.strip()]
+if starts and end is not None and len(rows) >= len(starts):
+    rows = rows[-len(starts):]
+    edges = starts + [end]
+    over = []
+    for i, r in enumerate(rows):
+        wall = (edges[i + 1] - edges[i]) % 86400
+        per = r["elapsed_s"] / max(1, r.get("limit") or 1)
+        over.append(wall - r["elapsed_s"] - 2 * per)
+    print("%d %d" % (max(1, math.ceil(max(over) / 60.0)), len(over)))
+EOF
+)
+    if [ -n "$LM" ]; then
+      read -r LOAD_MIN n_arms <<< "$LM"
+      LOAD_SRC="measured: slowest of $n_arms smoke arms ($SMOKE_LOG)"
+    else
+      LOAD_SRC="assumed; could not read arm times from $SMOKE_LOG"
+    fi
   fi
 fi
 
@@ -229,9 +288,10 @@ spp () {  # bucket conc kind -> seconds per prompt
 }
 cellmin () {  # arms bucket conc prompts kind [factor] -> minutes
   local load=$LOAD_MIN f=${6:-$FACTOR}
-  [ "$5" = "nsys" ] && load=5
+  [ "$5" = "nsys" ] && load=$((load + 2))
+  # n + 2: every arm also runs two warm-up prompts before its timed run.
   awk -v a="$1" -v s="$(spp "$2" "$3" "$5")" -v f="$f" -v n="$4" -v l="$load" \
-      'BEGIN { printf "%d", a * (l + n * s * f / 60) + 0.5 }'
+      'BEGIN { printf "%d", a * (l + (n + 2) * s * f / 60) + 0.5 }'
 }
 # One line per cell: name arms bucket conc prompts kind
 cells_of () {
@@ -254,7 +314,7 @@ cells_of () {
       # Without the file, an upper bound: six domains at --n 50 / --n32 25.
       local n=300; [ "$b" = "32K" ] && n=150
       local f=$DOMDATA/longbench_v2_$b.jsonl
-      [ -s "$f" ] && n=$(grep -c . "$f")
+      [ -s "$f" ] && n=$(( $(grep -c . "$f") - 2 ))   # the last two are the warm-up
       echo "domloop 4 $b 1 $n dec"; echo "domacc 7 $b 1 $n dec" ;;
     profile)
       echo "t64 3 32K 1 10 t64"; echo "t512 3 32K 1 10 t512"
@@ -284,6 +344,8 @@ for bn in $BUNDLES; do
   # on a few smoke prompts must not be able to make a job time out. A longer
   # request costs nothing extra; Slurm charges for time used.
   h=$(awk -v m="$mc" 'BEGIN { h = int(m * 1.6 / 60) + 1; if (h > 47) h = 47; print h }')
+  # The profiler's slowdown with CUDA-graph node tracing has not been measured.
+  [ "$bn" = "profile" ] && [ "${NSYS:-1}" = "1" ] && [ "$h" -lt 4 ] && h=4
   note=""
   case "$bn" in
     dom-*) [ -s "$DOMDATA/longbench_v2_${bn#*-}.jsonl" ] || { note="  NO DOMAIN FILE"; DOM_MISSING+=("$bn"); } ;;
@@ -297,6 +359,7 @@ awk -v m="$TOTAL" -v n="${#PLAN[@]}" -v f="$FACTOR" -v b="$BUDGET_H" 'BEGIN {
   printf "%d DeltaAI jobs, estimate %.1f GPU-hours (one GH200 each, charge factor 1.0), %.0f%% of %s.\n", n, m / 60, 100 * m / 60 / b, b
   if (f == 1.0) printf "No GH200 timing on disk yet, so this is the A40-speed ceiling; GH200 should be faster.\n" }'
 echo "GH200/A40 time factor: $FACTOR ($FACTOR_SRC). Override with GH200_FACTOR=<x>."
+echo "Engine start per arm: $LOAD_MIN min ($LOAD_SRC). Not scaled by the factor."
 echo "Check the balance first:  accounts"
 if [ "${#DOM_MISSING[@]}" -gt 0 ]; then
   echo
@@ -342,4 +405,4 @@ done
 echo
 echo "watch:   squeue -u $USER      (PD with QOSMaxJobsPerUserLimit = waiting its turn)"
 echo "after:   sacct -j <id> --format=JobID,State,Elapsed,NodeList%12,ExitCode -X"
-echo "         \"\$LADDER_VENV/bin/python3\" ksweep_table.py $LADDER_ROOT/results/gh200v2_ksweep"
+echo "         \"\$LADDER_VENV/bin/python3\" ksweep_table.py $LADDER_ROOT/results/gh200v2_ksweep_<bucket>"

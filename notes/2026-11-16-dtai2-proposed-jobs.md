@@ -1,8 +1,12 @@
 # 16 Nov 2026: the proposed DeltaAI job set (dtai2), why each job exists, and how to verify it
 
 **Status: proposed, not submitted. No GPU hours spent.** Everything here was
-tested offline only, against stubs (`code/test_dtai2.sh`, 63 checks, all
-passing). Nothing has run on DeltaAI. The set waits on Sahil's smoke job
+tested offline only, against stubs (`code/test_dtai2.sh`, 74 checks, all
+passing). Nothing has run on DeltaAI.
+
+**Revised 16 Nov 2026 after an outside review of commit `44e5a02`.** Section
+10 lists what the review found and what changed. Where this note and section
+10 disagree, section 10 is the later statement. The set waits on Sahil's smoke job
 (`env/deltaai.md`, `HANDOFF.md`): submit nothing until that job's rows show
 `resolved.use_v2_model_runner: true` and one `resolved.async_scheduling` state.
 
@@ -22,10 +26,11 @@ is labelled as such; none of it has been appended to the register.
 |---|---|---|
 | `code/dtai2_bundle.sh` | new | one Slurm job = one bundle of k-sweep cells on one GH200 |
 | `code/submit_dtai2.sh` | new | login node: checks, cost estimate, smoke gate, submits only with `GO=1` |
-| `code/run_benchmark.v5b.py` | new | a variant of harness v5 (RULES section 6) with two additive features; used by one cell type only |
+| `code/run_benchmark.v5b.py` | new, superseded | a variant of harness v5 (RULES section 6): `--k-schedule` and a `draft_config` record. No cell uses it now |
+| `code/run_benchmark.v5c.py` | new | a variant of v5b: per-request engine timing under vLLM 0.33.0's field names, warm-up on prompts that are not measured, stricter schedule checks. Every dtai2 cell runs on it |
 | `code/merge_domains.py` | new | turns `make_domains.py`'s per-domain files into one domain-balanced file per bucket |
-| `code/test_dtai2.sh` | new | offline tests, stubs only, about 6 s |
-| `code/nsys_v5.py` | new in the repo | runs harness v5 under Nsight Systems. Its docstring names `dtai_bundle.sh`, a first draft of this set that was never pushed; the profile bundle of `dtai2_bundle.sh` is its only user here |
+| `code/test_dtai2.sh` | new | offline tests, stubs only, about 10 s |
+| `code/nsys_v5.py` | new in the repo | runs a v5 harness under Nsight Systems (v5c here, through `LADDER_NSYS_HARNESS`); the profile bundle of `dtai2_bundle.sh` is its only user |
 
 Unchanged, and relied on: `ksweep.sh`, `run_benchmark.v5.py`,
 `make_domains.py`, `deltaai_env.sh`, `install_deltaai.sh` (all Sahil's,
@@ -72,8 +77,20 @@ k = 1, 2, 4, 7; five observations, four unknowns, residuals under 0.07 s):
 | c | +0.0023 (0.0020 to 0.0044 leaving one arm out) | 0.0143 |
 
 The plain step comes out at 81 to 82% of the A40's 696 GB/s in all three
-buckets, and prefill at about 100 to 130 TFLOP/s, both plausible. **Design
-consequence:** measure prefill directly instead of fitting it. Hence the
+buckets, and prefill at about 100 to 130 TFLOP/s, both plausible.
+
+**How much the fit can bear (review, 16 Nov).** The numbers reproduce, but
+the off row is fitted exactly, so four DFlash points fit three unknowns, and
+P is their intercept extrapolated about eightfold. With `spec.drafts` as the
+step count instead of generated minus accepted, the same fit gives P 176 s,
+t_d 39.9 ms, R_draft 0.96, c 0.0034, with smaller residuals. P and t_d are
+supported independently: the harness warms up on the first two prompts with
+prefix caching on, so the second timed prompt is decode only, and the engine
+log of job 22713173 (the same cell) gives t_d at most 37.4 ms and P about
+190 s. Those 190 s cover 23 uncached prompts, about 8.3 s each, not 25.
+R_draft and c are not identified: R_draft assumes DFlash's prefill equals the
+off arm's (a 20 s gap would make it 0.84), and c changes sign within
+residuals of 0.3 s. Quote neither. **Design consequence:** measure prefill directly instead of fitting it. Hence the
 `pre` cells (max_tokens 1, so no decode step) at c=1, and `pre1`/`preTop` in
 the concurrency jobs.
 
@@ -83,29 +100,41 @@ From the same fit: about 8.6 ms of drafting per step at 2K, about 37 ms at
 about 0.03 us per token (20 KiB per token at 696 GB/s; the 5 layers x 8 KV
 heads x 128 x 2 x 2 bytes is from the C23 text, the checkpoint config was not
 opened). So something linear in context runs at a few percent efficiency, or
-is CPU work. **Design consequence:** the `k0` cell splits DFlash's upkeep from
+is CPU work. "Drafting" is a label, not a finding: the quantity is everything
+a speculative step costs beyond a plain one, and the n-gram arm, which has no
+neural drafter, shows a context-growing excess too (about 2.3, 2.9 and 7.8 ms
+per step at 2K, 8K and 32K, roughly 0.18 us per token). **Design consequence:** the `k0` cell splits DFlash's upkeep from
 its draft pass (section 4.2), and the profile bundle runs DFlash under nsys at
 2K and 32K to name the kernel or CPU gap.
 
 **2.3 Acceptance at one k cannot be inferred from another for DFlash.** Job
-22569403 (A40, the same 100 2K prompts, about 77 concurrent, excluded from
-every c=1 table): at k=15 DFlash accepts more at each of positions 1 to 7 than
+22569403 (A40, the same 100 2K prompts, excluded from every c=1 table; the
+DFlash arms peaked at 53 and 56 concurrent requests, the 77 was the off and
+n-gram arms): at k=15 DFlash accepts more at each of positions 1 to 7 than
 at k=7 (position 1: 0.656 against 0.601; positions 1 to 7 summed: 1.666 against
-1.520). **Design consequence:** the acceptance passes run DFlash at k = 2, 4, 7
+1.520). The filed c=1 rows show the same direction without that job:
+position-1 acceptance at k = 1, 2, 7 is 0.570, 0.589, 0.601 at 2K and 0.395,
+0.426, 0.451 at 8K; at 32K it is small and not monotone. **Design
+consequence:** the acceptance passes run DFlash at k = 2, 4, 7
 and 15 instead of extrapolating from k=7.
 
 **2.4 The filed cells are mostly prose question answering.** Every filed cell
 reads the first 50 (or 25) lines of the shared bucket file. Code Repository
-Understanding is 3 of 50 at 2K and 2 at 32K (`paper/claims.md`, the C22
-domain table). **Design consequence:** the `dom-*` jobs.
+Understanding is 3 of the 47 scored prompts at 2K and 2 of the 24 at 32K
+(`paper/claims.md`, the C22 domain table, which counts scored prompts only). **Design consequence:** the `dom-*` jobs.
 
 **2.5 The filed concurrency cells were short.** At c=16 with 50 prompts there
 are about three rounds of requests, and `LOG.md` records sustained concurrency
 below the request (c=32 asked, mean 23.5). **Design consequence:** 128 prompts
 at 2K and 8K, 48 at 32K, the same prompt set at every concurrency of a bucket.
 
-**2.6 No speculative arm has ever been run twice at one setting** (`LOG.md`,
-after C21). **Design consequence:** `rep`, last in each `c1` job.
+**2.6 Withdrawn 16 Nov: "no speculative arm has ever been run twice at one
+setting" is false.** Ten speculative settings at concurrency 1 were run in two
+jobs each, with identical draft counts and elapsed times within 0.03 to 0.8%
+(A40 dflash 2K k=7: 210.88 s in job 22598608, 210.94 s in 22737716; A100
+dflash 32K k=7: 296.42 s and 296.24 s). What has not been done is a repeat
+inside one job, or any repeat on this build. **Design consequence:** `rep`,
+last in each `c1` job, is kept for that reason.
 
 **2.7 No filed row has per-request timing.** `per_request_timing` is 0 in 53
 rows and absent in 13; `loop_timing` is never true. **Design consequence:**
@@ -134,7 +163,10 @@ is within one cell of one job. On V2 the rungs are `ngram_gpu` and `dflash`.
 
 ### `c1-2K`, `c1-8K`, `c1-32K` (concurrency 1, 50 / 50 / 25 prompts)
 
-Cells in run order:
+Cells in run order. Every results directory below carries its bucket
+(`gh200v2_ksweep_2K`, and so on): `ksweep.sh` counts the rows of
+`results.jsonl` before and after a cell, so jobs sharing a file would each
+report themselves incomplete.
 
 | cell | arms | settings | results dir | answers |
 |---|---|---|---|---|
@@ -142,7 +174,7 @@ Cells in run order:
 | pre | REDUCED | max_tokens 1 | `gh200v2_prefill` | prefill per arm, directly |
 | loopA | FULL | one prompt at a time | `gh200v2_loopA` | per-prompt latency for every setting: router labels and the per-prompt oracle |
 | acc | CONCSET | per-request acceptance | `gh200v2_acc` | per-prompt acceptance by position at the k a router could choose |
-| k0 | off + dflash 7 | k schedule `1-1024:0`, harness v5b | `gh200v2_k0` | DFlash upkeep with no draft pass (section 4.2) |
+| k0 | off + dflash 7 | k schedule `1-1024:0` | `gh200v2_k0` | the cost of carrying an idle DFlash drafter (section 4.2) |
 | nopc | REDUCED | prefix caching off, 32K only | `gh200v2_nopc` | caching control |
 | rep | REDUCED | identical to core | `gh200v2_rep` | repeatability across the job; with `acc`, the cost of per-request logging |
 
@@ -160,9 +192,15 @@ Cells in run order:
   against `core` differs by more than about 0.5% on some arm, the clock log is
   not flat, or a fifth or more of prompts have their top two settings within
   about 1%. It then runs on its own as three short jobs (section 7).
-- The 2K prefix-caching-off cell of the first draft was dropped: each arm is
-  a fresh engine and every prompt a different document, so there is nothing
-  to reuse within an arm. 32K keeps it as the control.
+- The 2K prefix-caching-off cell of the first draft was dropped. The reason
+  given at first, that there is nothing to reuse within an arm, was wrong for
+  harness v5: it warms up on the first two measured prompts, which are then
+  cache hits in the timed run. Harness v5c warms up on two prompts that are
+  not measured, which makes the reason true. 32K keeps the cell as the
+  control: with v5c, `nopc` and `core` should agree.
+- Every prompt count in this section is the measured count. Each arm reads
+  two more prompts from the file for its warm-up, so the shared files must
+  hold 52 / 52 / 27 prompts for the `c1` jobs and 130 / 130 / 50 for `conc`.
 
 ### `conc-2K`, `conc-8K`, `conc-32K` (one prompt set per bucket)
 
@@ -192,7 +230,8 @@ interleaves the domains round-robin into one file per bucket. Up to about 300
 prompts at 2K and 8K and 150 at 32K if every domain is that large; a domain
 with fewer documents contributes what it has, one with fewer than 10 at a
 bucket is skipped there. The real counts are unknown until
-`make_domains.py --check` runs.
+`make_domains.py --check` runs. The last two prompts of each merged file are
+the warm-up and are not measured.
 
 | cell | arms | settings | results dir |
 |---|---|---|---|
@@ -218,7 +257,9 @@ cells' prompts; never pool them.
 
 The output-length pair shows whether the 32K result depends on the 256-token
 cap, and gives two equations per arm (time = prefill + tokens x per-token
-time), a cross-check on `pre`. The nsys reports split one step into target
+time), a cross-check on `pre`. On harness v5 that cross-check would have
+failed for a reason unrelated to the engine: two of the ten prompts, against
+two of 25 in `pre`, had a cached prefill. The nsys reports split one step into target
 forward, drafter context upkeep, draft pass, verification and CPU gaps. Rows
 written under the profiler are never used for speedups. The module that
 provides `nsys` on DeltaAI is unverified; the job tries `cudatoolkit`,
@@ -252,18 +293,33 @@ parallelism (`vllm/config/vllm.py:1088`, `:1110`).
 **4.2 k = 0 for DFlash.** With zero scheduled drafts, DFlash stores the
 context K/V to stay in sync and skips the query pass
 (`vllm/v1/worker/gpu/spec_decode/dflash/speculator.py:546-548`). So a DFlash
-arm with schedule `1-1024:0` keeps its drafter current and never drafts: its
-time over the off arm is DFlash's per-step upkeep alone. That is the `k0`
-cell. If the engine rejects or drops the schedule, harness v5b aborts that arm
-(no row is written) and only the `k0` cell fails.
+arm with schedule `1-1024:0` keeps its drafter current and never drafts. That
+is the `k0` cell. Its time over the off arm is **not** per-step upkeep alone
+(review, 16 Nov). It contains:
+
+- the drafter's context build over the whole prompt at prefill. This is
+  `pre(dflash)` minus `pre(off)`; subtract it;
+- the target's auxiliary hidden states, produced every step for DFlash;
+- the per-step context write, which in `k0` runs eagerly for one row per
+  step over every generated token, and in a k=7 arm runs inside the draft
+  CUDA graph for 1+k rows over about a third as many steps.
+
+Report it as the cost of carrying an idle DFlash drafter: an upper-bound
+diagnostic, not the upkeep term of the cost model. The source accepts the
+schedule (`vllm/v1/spec_decode/dynamic/utils.py:52-55` allows 0) and the k=0
+branch is the one stock DFlash takes on non-final prefill chunks, so it
+should run; no run has shown it. Harness v5c aborts the arm, writing no row,
+if the engine drops the schedule, if the schedule cannot be read back, or if
+any draft was counted.
 
 **4.3 Not used as a baseline, and why.** In these offline runs the
 concurrency is fixed, so a batch-size schedule amounts to one k per
 concurrency, which the CONCSET grid already measures. It matters only when
 load varies over time, which needs an online benchmark (section 6).
 `enable_adaptive_verification` exists (`speculative.py:585`) but is
-"Currently only supported for method="dspark"" (`:587`), so it is not a
-DFlash baseline at this tag. (The documentation on vLLM's main branch lists
+documented as "Currently only supported for method="dspark"" (`:587`), so it
+is not used as a DFlash baseline at this tag. Nothing in the code rejects it
+for DFlash; the statement is about what is documented, not what would run. (The documentation on vLLM's main branch lists
 DFlash; that is main, not 0.33.0.)
 
 **4.4 DFlash dispatch.** For method `dflash`, `init_speculator`
@@ -281,6 +337,15 @@ adaptive_verification, dflash, dflash2, dspark, eagle, extract_hidden_states,
 gemma4, lilicorr, mtp, multi_module_mtp, ngram, standalone_ar,
 target_dependent_ar, xpress), so suffix decoding is V1 only at this tag.
 
+**4.6 Two more, from the review.** With `max_tokens=1` a request produces one
+token from prefill and no decode step (`scheduler.py:801-815`), and DFlash
+skips its first query pass there (`scheduler.py:317-321`, `:535-545`), so
+`pre(dflash)` holds the drafter's context build but no draft; n-gram's
+`pre` holds a full lookup. `RequestOutput.metrics` is a `RequestStateStats`
+(`vllm/v1/metrics/stats.py:259-275`) with `scheduled_ts`, `first_token_ts`
+and `last_token_ts`; harness v5 asks for other names and so reports no
+timing, harness v5c reads these.
+
 ---
 
 ## 5. Design decisions
@@ -295,8 +360,11 @@ target_dependent_ar, xpress), so suffix decoding is V1 only at this tag.
 - **A harness variant, not an edit.** `run_benchmark.v5b.py` is v5 plus
   `--k-schedule` (or `LADDER_KSCHED`) and a `draft_config` record. With no
   schedule it writes the same rows as v5 apart from the added fields (test
-  T2). Only the `k0` cell uses it; every other cell runs on v5, the harness
-  the smoke job validates. The schedule is read from the environment because
+  T2). `run_benchmark.v5c.py` is v5b plus the review's three changes (section
+  10), and every cell runs on it; it measures the same prompts as v5 and
+  writes the same row fields plus `warmup` and `per_request_engine_timing`
+  (test T2c). **The smoke job validated v5, not v5c.** Rerun it on v5c before
+  submitting anything (section 7). The schedule is read from the environment because
   `ksweep.sh` has no knob for it, and `ksweep.sh` was left untouched.
 - **Domain cells set `LADDER_DATA` themselves.** `ksweep.sh:126` lets an
   exported `LADDER_DATA` replace the per-domain path, and `deltaai_env.sh`
@@ -351,17 +419,25 @@ is a guess.
 
 | job | ceiling at A40 speed | walltime requested |
 |---|---|---|
-| c1-2K | 367 min | 10 h |
-| profile | 72 min | 2 h |
-| c1-8K | 424 min | 12 h |
-| c1-32K | 538 min | 15 h |
-| conc-2K | 338 min | 10 h |
-| conc-8K | 406 min | 11 h |
-| conc-32K | 497 min | 14 h |
-| dom-2K | 468 min (if 300 prompts) | 13 h |
-| dom-8K | 561 min (if 300 prompts) | 15 h |
-| dom-32K | 657 min (if 150 prompts) | 18 h |
-| **total** | **72.1 GPU-hours** | |
+| c1-2K | 377 min | 11 h |
+| profile | 79 min | 4 h (floor: the profiler's slowdown is unmeasured) |
+| c1-8K | 436 min | 12 h |
+| c1-32K | 570 min | 16 h |
+| conc-2K | 342 min | 10 h |
+| conc-8K | 411 min | 11 h |
+| conc-32K | 513 min | 14 h |
+| dom-2K | 470 min (if 300 prompts) | 13 h |
+| dom-8K | 564 min (if 300 prompts) | 16 h |
+| dom-32K | 666 min (if 150 prompts) | 18 h |
+| **total** | **73.8 GPU-hours** | |
+
+The table now counts each arm's two warm-up prompts. Engine start is 276
+arms at an assumed 3 minutes, 13.8 of the 73.8 hours, and the GH200 factor
+does not scale it: at 6 minutes the total is about 88 hours, and at GH200
+generation speed engine start may be close to half of what is actually
+spent. Pass `SMOKE_LOG=<the smoke job's log>` and the submitter measures it
+from the arm timestamps. Whose allocation each job comes from (RULES section
+7) is open question 3 and must be settled before `GO=1`.
 
 Budget as of 16 Nov: about 200 DeltaAI GPU-hours between Devansh and Sahil,
 more on request. `loopB`, if needed later, is about 6.6 more.
@@ -378,10 +454,22 @@ PROJ=<proj> ACCOUNT=<account> source deltaai_env.sh
 "$LADDER_VENV/bin/python3" make_domains.py --src "$LADDER_DATA" --dst "$LADDER_ROOT/data" --n 50 --n32 25
 "$LADDER_VENV/bin/python3" merge_domains.py
 
-bash submit_dtai2.sh SMOKE=<smoke results dir>                       # plan, cost, smoke check
-bash submit_dtai2.sh SMOKE=<smoke results dir> BUNDLES="c1-2K profile" GO=1
-# read both logs (section 8.5), then:
-bash submit_dtai2.sh SMOKE=<smoke results dir> BUNDLES="c1-8K c1-32K conc-2K conc-8K conc-32K dom-2K dom-8K dom-32K" GO=1
+# the smoke job again, on the harness the jobs will use (five prompts, minutes):
+LADDER_RUN=$PWD/run_benchmark.v5c.py bash submit_ksweep.sh PART=ghx4 BUCKETS=2K LIMIT=5 K_NGRAM=5 K_DFLASH=7 GO=1
+
+S="SMOKE=<smoke results dir> SMOKE_LOG=<smoke job log>"
+bash submit_dtai2.sh $S                                              # plan, cost, smoke check
+# 1. the two riskiest cells alone (six arms), and the profile job:
+bash submit_dtai2.sh $S BUNDLES=c1-2K CELLS="k0 pre" GO=1
+bash submit_dtai2.sh $S BUNDLES=profile GO=1
+# 2. read both logs (section 8.5), then the rest of c1-2K and the other c1 and conc jobs:
+bash submit_dtai2.sh $S BUNDLES=c1-2K CELLS="core loopA acc rep" GO=1
+bash submit_dtai2.sh $S BUNDLES="c1-8K c1-32K conc-2K conc-8K conc-32K" GO=1
+# 3. the domain jobs last, once the core cells show which k to carry (their
+#    arms are fixed at ngram_gpu 5, dflash 7 and 15; change REDUCED first if
+#    the core results point elsewhere), and dom-32K only if some setting
+#    beats off at 32K:
+bash submit_dtai2.sh $S BUNDLES="dom-2K dom-8K dom-32K" GO=1
 
 # only if section 3's rule calls for it:
 bash submit_dtai2.sh SMOKE=<smoke results dir> BUNDLES="c1-2K c1-8K c1-32K" CELLS=loopB LOOPB=1 GO=1
@@ -396,7 +484,7 @@ barely does, hold the domain jobs and reconsider the router.
 ## 8. How to verify this (for a reviewing agent)
 
 **8.1 Offline tests.** From `code/`: `bash test_dtai2.sh`. Expect
-`passed 63, failed 0`. The tests build stubs (fake `vllm` and `torch`, venv,
+`passed 74, failed 0`. The tests build stubs (fake `vllm` and `torch`, venv,
 `nvidia-smi` answering GH200 and 9.0, `sbatch`, `module`, `nsys`) and run the
 real scripts. They cover: syntax; v5b rows equal to v5 rows; every k-schedule
 refusal and the abort when the engine drops a schedule; the exact cell list of
@@ -469,9 +557,12 @@ Understanding, 2K"). 2.5 is in `LOG.md` (search for "mean 23.5").
 submitting the rest:
 - every row: `resolved.use_v2_model_runner` true, one `resolved.async_scheduling` state;
 - `gh200v2_meta/*.json`: `speculator_class` is `DFlashSpeculator`, and note `layer_types` and the causal flags;
-- `gh200v2_k0`: the dflash row exists, its `resolved.spec_k_schedule` is `[[1, 1024, 0]]`, and `spec.drafts` is 0. If the row is missing, read the log: the engine refused the schedule;
+- `gh200v2_k0_2K`: the dflash row exists, its `resolved.spec_k_schedule` is `[[1, 1024, 0]]`, `spec.drafts` is 0, and its per-request `sha1` values equal the off arm's in the same cell. If the row is missing, read the log: the engine refused the schedule or drafted anyway;
+- the startup log's resolved CUDA graph mode is the same for off, k0 and dflash 7;
+- every row: `warmup.measured_too` is empty, and `per_request_engine_timing` equals the prompt count. If it is 0, print `vars(outputs[0].metrics)` once and fix the field names before going on;
+- per-arm wall time against the plan's engine start; rerun the plan with `LOAD_MIN=<measured>`;
 - `gh200v2_prefill`: `gen_tokens` equals the prompt count, and elapsed is well under the core cell's;
-- `per_request_timing` on any row above 0 means vLLM 0.33.0 fills in time to first token, which would make the `pre` cells a cross-check rather than the only prefill measurement;
+- summed per-request `prefill_s` in `core` against the `pre` cell's elapsed, arm by arm: two measurements of the same prefill;
 - the GPU clock log is flat;
 - `rep` against `core` on the four shared arms, and `acc` against `rep` (logging cost);
 - `loopA` summed per-prompt time against `core` elapsed, arm by arm;
@@ -496,3 +587,62 @@ once.
    "different domains"?
 3. How to split the job slots: one suggestion is Devansh runs `c1-*` and
    `conc-*`, Sahil runs `dom-*` and, if needed, `loopB`.
+
+---
+
+## 10. Outside review of `44e5a02`, 16 Nov 2026, and what changed
+
+An adversarial read-only review (the brief is
+`EVALUATE-dtai2-proposed-jobs.md`) against the repository at `44e5a02`, vLLM
+at tag `v0.33.0`, and NCSA's DeltaAI pages. Verdict: run with changes. Read
+from source and reproduced against stubs; nothing here has been observed on
+DeltaAI either.
+
+**Found, and fixed in this revision.**
+
+1. *Harness v5 discards timing vLLM 0.33.0 provides.* It reads
+   `first_scheduled_time`, `first_token_time`, `finished_time`
+   (`run_benchmark.v5.py:274`); the tag has `scheduled_ts`, `first_token_ts`,
+   `last_token_ts` (`vllm/v1/metrics/stats.py:259-275`). Fixed in v5c:
+   per-request `prefill_s`, `decode_s`, `queue_s`, `engine_s`, `ttft_s`.
+2. *Warm-up on measured prompts with prefix caching on.* Two prompts per arm
+   had a cached prefill in the timed run. Fixed in v5c: warm-up on the two
+   prompts after the limit; the row records it.
+3. *Three jobs per results directory.* Reproduced with stubs: two bundles at
+   once both exit 1 ("expected 12 new rows, found 24"). Fixed: the bucket is
+   in every directory name.
+4. *`k0` unasserted and mislabelled.* Fixed: v5c aborts on a failed read-back
+   and on any draft; sections 3 and 4.2 reworded.
+5. *Settings leaking from the submitting shell.* `SEED`, `TEMP`, `PLMIN`,
+   `PLMAX` reached every cell (reproduced: rows `..._s999_c1_T0p7_pl3-9`).
+   Fixed: cleared per cell; `LADDER_RESULTS` joins the `/projects` check.
+6. *Submitter.* Engine start measured from the smoke log; the smoke gate also
+   checks the vLLM version and that speculative rows drafted; the profile
+   job's walltime has a 4 h floor; the GH200 factor accepts a GPU named H100.
+7. *Tests.* Two mutations had passed unnoticed (five names dropped from the
+   `unset` list; the walltime multiplier). Both now fail a test.
+8. *This note.* 2.1 (what the fit can bear), 2.2, 2.3, 2.4, 2.6 (withdrawn),
+   4.2, 4.3, 4.6, the cost table and the submission order.
+
+**Found, not fixed here.**
+
+- `loopB`'s trigger compares `rep` with `core`, an aggregate over 50 prompts;
+  it says nothing about per-prompt noise, and with 12 arms on a smooth k
+  curve "top two within 1%" will almost always hold. A check that costs
+  nothing: by `make_domains.py`'s selection rule every `loopA` prompt is
+  also in the domain files, so `domloop` re-times them in another job at
+  four settings. Compare per-prompt speedups there before paying for `loopB`.
+  The off arm is also run three times per `c1` job (`core`, `k0`, `rep`).
+- Above batch 1 the router's value is modelled from uniform batches. Enough
+  for the course if stated; a paper needs arrivals and mixed batches.
+- The domain jobs are 39% of the estimate and vary the text, not the task.
+- 32K prompts beyond the first 25 have not been checked against
+  `max_model_len` 33,792 (the longest of the first 25 is 33,189 tokens, so
+  512 output tokens fit with 91 to spare).
+- `env/deltaai.md` has no step for copying the workloads (only
+  `deltaai_env.sh` prints one) and no checksum against the filed files.
+- Which module provides `nsys` on DeltaAI; the bundle's `module load`
+  attempts persist in the job shell.
+- With `VLLM_USE_V2_MODEL_RUNNER=1` the config returns the environment value
+  directly (`vllm/config/vllm.py:748-750`), so the harness's "engine resolved
+  V1" abort cannot fire. Read from source by the review, not rechecked.

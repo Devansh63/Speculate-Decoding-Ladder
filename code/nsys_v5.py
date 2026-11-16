@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Run harness v5 under Nsight Systems. Used only by dtai_bundle.sh's
-profile bundle, which hands it to ksweep.sh as LADDER_RUN.
+"""Run harness v5 (or the variant named in LADDER_NSYS_HARNESS) under Nsight
+Systems. Used only by dtai2_bundle.sh's profile bundle, which hands it to
+ksweep.sh as LADDER_RUN and points LADDER_NSYS_HARNESS at harness v5c.
 
 ksweep.sh refuses any harness file that does not contain the string
 `HARNESS_VERSION = "v5`, so this wrapper carries that marker below. It
@@ -8,7 +9,7 @@ measures nothing itself: it re-executes
     nsys profile ... python3 run_benchmark.v5.py <the same arguments>
 and run_benchmark.v5.py writes the row exactly as it always does. Those rows
 were taken under the profiler, so the profile bundle sends them to their own
-directory (results/gh200_nsys); they are never pooled with unprofiled rows.
+directory (results/gh200v2_nsys); they are never pooled with unprofiled rows.
 
 One report per arm: <outdir>/nsys/<rung>_<bucket>_k<k>_j<jobid>.nsys-rep.
 Read them later with `nsys stats` or the Nsight Systems GUI. With CUDA graph
@@ -35,12 +36,14 @@ def flag_value(args, flag, default="na"):
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
-    harness = os.path.join(here, "run_benchmark.v5.py")
+    # LADDER_NSYS_HARNESS: profile another v5 variant (dtai2_bundle.sh sets it
+    # to run_benchmark.v5c.py). Default: v5.
+    harness = os.environ.get("LADDER_NSYS_HARNESS") or os.path.join(here, "run_benchmark.v5.py")
     if not os.path.isfile(harness):
         sys.exit(f"ABORT: no harness at {harness}")
     nsys = shutil.which("nsys")
     if nsys is None:
-        sys.exit("ABORT: nsys is not on PATH. dtai_bundle.sh tries to load it "
+        sys.exit("ABORT: nsys is not on PATH. dtai2_bundle.sh tries to load it "
                  "from a module first; set NSYS_MODULES to the right name.")
 
     args = sys.argv[1:]

@@ -16,6 +16,20 @@
 # Written 16 Nov 2026 for vLLM 0.33.0 on Model Runner V2. Tested only against
 # stub scripts, not on DeltaAI.
 #
+# Revised 16 Nov 2026 after the outside review (the note's section 10):
+#   - every cell runs on harness v5c (per-request engine timing under vLLM
+#     0.33.0's field names; warm-up on two prompts that are not measured;
+#     stricter k-schedule checks). The nsys cells run v5c under the profiler.
+#   - every results directory carries its bucket (gh200v2_ksweep_2K, ...).
+#     ksweep.sh counts the rows of results.jsonl before and after a cell, so
+#     two jobs appending to one file made both report INCOMPLETE, and RULES
+#     section 3 warns that two writers can interleave lines.
+#   - SEED TEMP PLMIN PLMAX and LADDER_WARMUP are cleared for every cell.
+#   - the domain cells measure the file's prompts less the last two, which
+#     are the warm-up.
+#   The directory names in the bundle list below are prefixes: read each as
+#   <name>_<bucket>.
+#
 # DeltaAI only: GH200 nodes (aarch64 Grace CPU, H100 GPU, sm_90), partition
 # ghx4. Delta's A40 and A100 nodes cannot run it: the venv is aarch64, the
 # vLLM is 0.33.0 on Model Runner V2, and ksweep.sh refuses any GPU whose
@@ -70,11 +84,16 @@
 #         Per-prompt acceptance at the DFlash k a router might choose. It
 #         cannot be inferred from k=7: DFlash accepts more at early positions
 #         when it drafts more (job 22569403, k=15 against k=7).
-#   k0    off + DFlash with the k schedule 1-1024:0, harness v5b
+#   k0    off + DFlash with the k schedule 1-1024:0
 #                                                -> results/gh200v2_k0
 #         DFlash keeps its drafter's context K/V current every step and never
-#         drafts, so k0 minus off is DFlash's per-step upkeep alone, and the
-#         k sweep's remainder is the draft pass. Splits R_draft in two.
+#         drafts. k0 minus off is the cost of carrying an idle DFlash drafter:
+#         its context build over the prompt at prefill (the same quantity as
+#         pre(dflash) minus pre(off); subtract it), the target's auxiliary
+#         hidden states every step, and the per-step context write, which here
+#         runs eagerly for one row per step and in a k=7 arm runs inside the
+#         draft graph for 1+k rows. An upper-bound diagnostic for upkeep, not
+#         the upkeep term of the cost model.
 #   nopc  (32K only) REDUCED, prefix caching off -> results/gh200v2_nopc
 #   loopB OFF BY DEFAULT (LOOPB=1). FULL, per-prompt latency, second pass
 #                                                -> results/gh200v2_loopB
@@ -163,7 +182,7 @@ if [ "$LADDER_CAPS" != "90" ]; then
 fi
 # Delta's /projects may not be mounted on DeltaAI's compute nodes. Nothing a
 # job reads or writes may live there.
-for v in LADDER_ROOT LADDER_VENV LADDER_HF LADDER_DATA LADDER_CACHE LADDER_DOMDATA; do
+for v in LADDER_ROOT LADDER_VENV LADDER_HF LADDER_DATA LADDER_CACHE LADDER_DOMDATA LADDER_RESULTS; do
   case "${!v:-}" in
     /projects/*) echo "ABORT: $v=${!v} is under /projects. Use the copies under /work/nvme."; exit 1 ;;
   esac
@@ -176,12 +195,15 @@ fi
 
 HERE=${SLURM_SUBMIT_DIR:-$(cd "$(dirname "$0")" && pwd)}
 KS=${LADDER_KSWEEP:-$HERE/ksweep.sh}
-V5B=$HERE/run_benchmark.v5b.py
+V5C=$HERE/run_benchmark.v5c.py
 RES=${LADDER_RESULTS:-$LADDER_ROOT/results}
 DOMDATA=${LADDER_DOMDATA:-$LADDER_ROOT/data/domains_balanced}
 NSYS=${NSYS:-1}
 JOB=${SLURM_JOB_ID:-nojob}
 [ -f "$KS" ] || { echo "ABORT: no $KS. Submit from the repository's code/ directory."; exit 1; }
+grep -q 'HARNESS_VERSION = "v5c' "$V5C" 2>/dev/null || { echo "ABORT: no harness v5c at $V5C (git pull?)."; exit 1; }
+# nsys_v5.py profiles this harness instead of its default, v5.
+export LADDER_NSYS_HARNESS=$V5C
 
 echo "dtai2 bundle $BUNDLE   job $JOB   host $(hostname)   $(date)"
 echo "ksweep: $KS"
@@ -270,11 +292,11 @@ cell () {  # $1 name, $2 bucket, then KEY=VALUE pairs for ksweep.sh
   # the next. LADDER_DATA is only ever overridden inside the subshell.
   (
     unset CONC LIMIT PC PERREQ LOOP MAXTOK K_NGRAM K_NGRAM_GPU K_DFLASH RUNGS \
-          LADDER_RUN LADDER_OUT LADDER_KSCHED
-    export BUCKET="$bucket" DOMAIN=all
+          LADDER_RUN LADDER_OUT LADDER_KSCHED LADDER_WARMUP SEED TEMP PLMIN PLMAX
+    export BUCKET="$bucket" DOMAIN=all LADDER_RUN="$V5C"
     for kv in "$@"; do export "$kv"; done
     mkdir -p "$LADDER_OUT"
-    echo "cell $name: CONC=${CONC:-1} LIMIT=${LIMIT:-default} PC=${PC:-default} LOOP=${LOOP:-} PERREQ=${PERREQ:-none} MAXTOK=${MAXTOK:-256} RUNGS=${RUNGS:-default} K_NGRAM_GPU='${K_NGRAM_GPU:-}' K_DFLASH='${K_DFLASH:-}' KSCHED=${LADDER_KSCHED:-none} RUN=${LADDER_RUN:-v5} DATA=$LADDER_DATA OUT=$LADDER_OUT"
+    echo "cell $name: CONC=${CONC:-1} LIMIT=${LIMIT:-default} PC=${PC:-default} LOOP=${LOOP:-} PERREQ=${PERREQ:-none} MAXTOK=${MAXTOK:-256} RUNGS=${RUNGS:-default} K_NGRAM_GPU='${K_NGRAM_GPU:-}' K_DFLASH='${K_DFLASH:-}' KSCHED=${LADDER_KSCHED:-none} RUN=$(basename "$LADDER_RUN") DATA=$LADDER_DATA OUT=$LADDER_OUT"
     bash "$KS"
   )
   local rc=$?
@@ -292,23 +314,19 @@ fail_cell () {  # $1 name, $2 reason
 B=${BUNDLE#*-}
 case "$BUNDLE" in
   c1-*)
-    cell core "$B" CONC=1 "${FULL[@]}"                    LADDER_OUT="$RES/gh200v2_ksweep"
-    cell pre   "$B" CONC=1 MAXTOK=1 "${REDUCED[@]}"         LADDER_OUT="$RES/gh200v2_prefill"
-    cell loopA "$B" CONC=1 LOOP=1 "${FULL[@]}"             LADDER_OUT="$RES/gh200v2_loopA"
-    cell acc   "$B" CONC=1 PERREQ=detailed "${CONCSET[@]}" LADDER_OUT="$RES/gh200v2_acc"
-    if [ -f "$V5B" ]; then
-      cell k0 "$B" CONC=1 RUNGS=dflash K_DFLASH=7 LADDER_KSCHED=1-1024:0 \
-              LADDER_RUN="$V5B" LADDER_OUT="$RES/gh200v2_k0"
-    else
-      fail_cell k0 "no $V5B"
-    fi
-    [ "$B" = "32K" ] && cell nopc "$B" CONC=1 PC=off "${REDUCED[@]}" LADDER_OUT="$RES/gh200v2_nopc"
+    cell core "$B" CONC=1 "${FULL[@]}"                    LADDER_OUT="$RES/gh200v2_ksweep_$B"
+    cell pre   "$B" CONC=1 MAXTOK=1 "${REDUCED[@]}"         LADDER_OUT="$RES/gh200v2_prefill_$B"
+    cell loopA "$B" CONC=1 LOOP=1 "${FULL[@]}"             LADDER_OUT="$RES/gh200v2_loopA_$B"
+    cell acc   "$B" CONC=1 PERREQ=detailed "${CONCSET[@]}" LADDER_OUT="$RES/gh200v2_acc_$B"
+    cell k0    "$B" CONC=1 RUNGS=dflash K_DFLASH=7 LADDER_KSCHED=1-1024:0 \
+               LADDER_OUT="$RES/gh200v2_k0_$B"
+    [ "$B" = "32K" ] && cell nopc "$B" CONC=1 PC=off "${REDUCED[@]}" LADDER_OUT="$RES/gh200v2_nopc_$B"
     if [ "${LOOPB:-0}" = "1" ]; then
-      cell loopB "$B" CONC=1 LOOP=1 "${FULL[@]}"           LADDER_OUT="$RES/gh200v2_loopB"
+      cell loopB "$B" CONC=1 LOOP=1 "${FULL[@]}"           LADDER_OUT="$RES/gh200v2_loopB_$B"
     elif [ -n "${CELLS:-}" ]; then
       fail_cell loopB "CELLS asks for loopB but LOOPB is not 1"
     fi
-    cell rep   "$B" CONC=1 "${REDUCED[@]}"                 LADDER_OUT="$RES/gh200v2_rep"
+    cell rep   "$B" CONC=1 "${REDUCED[@]}"                 LADDER_OUT="$RES/gh200v2_rep_$B"
     ;;
   conc-*)
     case "$B" in
@@ -317,21 +335,22 @@ case "$BUNDLE" in
       32K) N=48;  CS="1 2 4 8" ;;
     esac
     TOP=${CS##* }
-    cell pre1 "$B" CONC=1 LIMIT="$N" MAXTOK=1 "${PRESET[@]}" LADDER_OUT="$RES/gh200v2_conc_prefill"
+    cell pre1 "$B" CONC=1 LIMIT="$N" MAXTOK=1 "${PRESET[@]}" LADDER_OUT="$RES/gh200v2_conc_prefill_$B"
     for C in $CS; do
-      cell "c$C" "$B" CONC="$C" LIMIT="$N" "${CONCSET[@]}" LADDER_OUT="$RES/gh200v2_conc"
+      cell "c$C" "$B" CONC="$C" LIMIT="$N" "${CONCSET[@]}" LADDER_OUT="$RES/gh200v2_conc_$B"
     done
-    cell preTop "$B" CONC="$TOP" LIMIT="$N" MAXTOK=1 "${PRESET[@]}" LADDER_OUT="$RES/gh200v2_conc_prefill"
+    cell preTop "$B" CONC="$TOP" LIMIT="$N" MAXTOK=1 "${PRESET[@]}" LADDER_OUT="$RES/gh200v2_conc_prefill_$B"
     ;;
   dom-*)
     F=$DOMDATA/longbench_v2_$B.jsonl
     if [ -s "$F" ]; then
-      N=$(grep -c . "$F")
-      echo "domain file $F: $N prompts"
+      HAVE=$(grep -c . "$F")
+      N=$((HAVE - 2))   # the last two prompts of the file are the warm-up
+      echo "domain file $F: $HAVE prompts, $N measured, the last two for the warm-up"
       cell domloop "$B" CONC=1 LOOP=1 LIMIT="$N" "${REDUCED[@]}" LADDER_DATA="$DOMDATA" \
-           LADDER_OUT="$RES/gh200v2_dom_loop"
+           LADDER_OUT="$RES/gh200v2_dom_loop_$B"
       cell domacc  "$B" CONC=1 PERREQ=detailed LIMIT="$N" "${CONCSET[@]}" LADDER_DATA="$DOMDATA" \
-           LADDER_OUT="$RES/gh200v2_dom_acc"
+           LADDER_OUT="$RES/gh200v2_dom_acc_$B"
     else
       fail_cell domloop "no $F (run make_domains.py and merge_domains.py first)"
       fail_cell domacc  "no $F"
@@ -372,7 +391,7 @@ for s in "${STATUS[@]}"; do echo "  $s"; done
 echo "cells run: $RAN   cells failed, skipped or incomplete: $FAILED"
 echo "gpu log: $GPULOG"
 echo "next, on the login node:"
-echo "  \"\$LADDER_VENV/bin/python3\" ksweep_table.py $RES/gh200v2_ksweep"
+echo "  \"\$LADDER_VENV/bin/python3\" ksweep_table.py $RES/gh200v2_ksweep_<bucket>"
 # COMPLETED must mean the measurements exist (RULES section 6).
 [ "$FAILED" -eq 0 ] || { echo "INCOMPLETE: read the cell logs above before using any of this bundle."; exit 1; }
 echo "done."
