@@ -11,6 +11,8 @@ check it and to submit jobs.
 | shared tree | `/work/nvme/bikd/ssashi/Speculative_Ladder` |
 | venv | `.../vllm033_gh200` (vLLM 0.33.0, torch 2.14.0+cu130, Model Runner V2) |
 | venv Python | `/opt/cray/pe/python/3.11.7` (system `cray-python`, readable by everyone) |
+| models | `/work/nvme/bikd/dagraw2/Speculative_Ladder/hf/hub` (Devansh's cache; both pinned snapshots) |
+| workloads | `/work/nvme/bikd/dagraw2/Speculative_Ladder/data/longbench_v2` (sha256 matches the `/projects` copy: 2K `3faddda8...`, 8K `ba1a7534...`, 32K `5704c985...`) |
 | login node | `gh-login01.delta.ncsa.illinois.edu` |
 
 Sahil's NCSA username is `ssashi`, not his campus NetID `ssashi2`. Check your
@@ -18,8 +20,10 @@ own with `whoami` after logging in.
 
 ## How the sharing works
 
-- **Shared, read by jobs:** the venv, the model snapshots (`hf/hub`) and the
-  workloads (`data/longbench_v2`), all in Sahil's tree.
+- **Shared, read by jobs:** the venv in Sahil's tree, and the model
+  snapshots (`hf/hub`) and workloads (`data/longbench_v2`) in Devansh's tree.
+  One copy of each, so both of us read identical files. Sahil's tree has no
+  models or data; do not copy them there.
 - **Per person, written by jobs:** `LADDER_ROOT` (logs, results) and
   `LADDER_CACHE` (vLLM compile cache). `deltaai_env.sh` puts these under
   `/work/nvme/bikd/$USER/Speculative_Ladder`, so each of us writes to our own
@@ -128,11 +132,13 @@ mkdir -p /work/nvme/bikd/$USER/Speculative_Ladder && cd /work/nvme/bikd/$USER/Sp
 ### B6. Check the job environment
 
 ```bash
-export LADDER_VENV=$V LADDER_HF=$S/hf/hub LADDER_DATA=$S/data/longbench_v2 && source deltaai_env.sh
+unset LADDER_HF LADDER_DATA; export LADDER_VENV=$V && source deltaai_env.sh
 ```
 
-Expected: `LADDER_ROOT` is your own folder, `LADDER_VENV`, `LADDER_HF` and
-`LADDER_DATA` are Sahil's paths, and the last line is `all present`.
+Leave `LADDER_HF` and `LADDER_DATA` unset: `deltaai_env.sh` finds your own
+cache and workloads. Expected: `LADDER_ROOT` is your own folder,
+`LADDER_VENV` is Sahil's venv, `LADDER_HF` and `LADDER_DATA` are under
+`/work/nvme/bikd/dagraw2/`, and the last line is `all present`.
 
 ### B7. GPU check (optional, about 10 minutes, roughly 0.2 GPU-hours)
 
@@ -151,24 +157,40 @@ Expected: a GH200 or H100 name, `(9, 0)`, `matmul ok True`.
 | B3: `ls` works, no `ACCESS_OK` | Read but no write (mask) | Sahil runs `setfacl -R -m m::rwx,d:m::rwx /work/nvme/bikd/ssashi/Speculative_Ladder` |
 | B4: `ModuleNotFoundError` | A different Python is being picked up | Use the full `$V/bin/python3` path, `module unload cray-python`, `unset PYTHONPATH` |
 | B4: error about `libpython` | Cray Python library not loaded | `module load cray-python`, rerun B4 |
-| B6: `MISSING ...` | Model or data path wrong | `ls $S/hf/hub $S/data`, tell Sahil |
+| B6: `MISSING ...` | Model or data path wrong | Check `LADDER_HF` and `LADDER_DATA` are unset and point under `/work/nvme/bikd/dagraw2/` |
 | B7: `no kernel image` or CUDA error | Wheel or GPU problem, not permissions | Tell Sahil; his jobs fail the same way |
 | B7: waits in the queue | `ghx4` is busy | Wait, or use `ghx4-interactive` (charged at 2x) |
 | Sahil cannot edit a file you created | Default ACL for Sahil missing | Run `setfacl -m u:ssashi:rwX <file>` |
 
 ## Every session after setup
 
-```bash
-export PROJ=bikd ACCOUNT=bikd-dtai-gh S=/work/nvme/bikd/ssashi/Speculative_Ladder
-```
+Both of us:
 
 ```bash
-export LADDER_VENV=$S/vllm033_gh200 LADDER_HF=$S/hf/hub LADDER_DATA=$S/data/longbench_v2
+export PROJ=bikd ACCOUNT=bikd-dtai-gh LADDER_VENV=/work/nvme/bikd/ssashi/Speculative_Ladder/vllm033_gh200
 ```
+
+Sahil only. `LADDER_HF` finds Devansh's cache by itself, but `LADDER_DATA`
+would fall back to Sahil's empty folder, so set it:
+
+```bash
+export LADDER_DATA=/work/nvme/bikd/dagraw2/Speculative_Ladder/data/longbench_v2
+```
+
+Devansh only: leave `LADDER_HF` and `LADDER_DATA` unset.
+
+```bash
+unset LADDER_HF LADDER_DATA
+```
+
+Then both:
 
 ```bash
 cd /work/nvme/bikd/$USER/Speculative_Ladder/repo/code && git pull && source deltaai_env.sh
 ```
+
+Check that `LADDER_HF` and `LADDER_DATA` print paths under
+`/work/nvme/bikd/dagraw2/` and the last line is `all present`.
 
 Then submit as usual. The submit scripts print the plan and submit only with
 `GO=1`:
