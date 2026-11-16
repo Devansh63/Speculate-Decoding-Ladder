@@ -70,6 +70,62 @@ directory overwrites the first.
 
 ---
 
+## 16 Nov 2026: proposed DeltaAI job set, dtai2 (not submitted)
+
+No jobs run, no GPU hours spent. Ten proposed DeltaAI jobs, to be submitted
+only after Sahil's smoke job passes. Full rationale, the evidence behind each
+cell, the vLLM 0.33.0 source it relies on, cost, and a verification checklist:
+`notes/2026-11-16-dtai2-proposed-jobs.md`.
+
+**New:** `code/dtai2_bundle.sh` (one job runs several k-sweep cells for one
+purpose on one GH200), `code/submit_dtai2.sh` (checks, cost estimate, smoke
+gate, submits only with `GO=1`), `code/run_benchmark.v5b.py` (a variant of
+harness v5, which is untouched: `--k-schedule` for vLLM's
+`num_speculative_tokens_per_batch_size`, and a record of the DFlash
+checkpoint's config; only the `k0` cell uses it), `code/merge_domains.py`
+(one domain-balanced file per bucket from `make_domains.py`'s output),
+`code/nsys_v5.py` (harness v5 under Nsight Systems), `code/test_dtai2.sh`
+(offline tests, stubs only: 63 checks, all pass). Unchanged: `ksweep.sh`,
+`run_benchmark.v5.py`, `make_domains.py`, `deltaai_env.sh`.
+
+**The jobs:** `c1-2K`, `c1-8K`, `c1-32K` (full k sweep, prefill-only cell,
+per-prompt timing at every k, per-request acceptance at DFlash k 2, 4, 7, 15,
+a DFlash k=0 cell that keeps the drafter current without drafting, a repeat);
+`conc-2K`, `conc-8K`, `conc-32K` (one prompt set per bucket at every
+concurrency, 128 / 128 / 48 prompts, with prefill cells); `dom-2K`, `dom-8K`,
+`dom-32K` (LongBench v2 domains, balanced); `profile` (output length 64 and
+512 at 32K, nsys at 2K and 32K).
+
+**Why, in one line each** (details in the note): the filed ratios mix prefill
+with decode, so measure prefill directly; DFlash's per-step cost at 32K grows
+far faster with context than its own reads, so split upkeep from drafting and
+profile it; DFlash accepts more at early positions when it drafts more (job
+22569403), so measure acceptance at each k; the filed cells are mostly prose
+QA, so add domains; the filed concurrency cells were about three rounds long;
+no speculative arm has ever been repeated; no filed row has per-request
+timing.
+
+**Decided:** run every job once first. The second per-prompt timing pass
+(`loopB`, for an oracle free of noise bias) is defined but off; the note says
+when to add it. Results go to `results/gh200v2_*`, which nothing else writes.
+
+**Cost, stated before running (RULES section 7):** about 72 GPU-hours at
+A40 speed as a ceiling, domain jobs priced at the largest possible file. No
+GH200 timing exists; `submit_dtai2.sh` rescales the estimate from the smoke
+job's off row once it exists, and requests walltimes from the ceiling.
+
+**Command, once the smoke job has passed:**
+
+```bash
+bash submit_dtai2.sh SMOKE=<smoke results dir> BUNDLES="c1-2K profile" GO=1
+```
+
+**Not verified:** anything on DeltaAI; whether vLLM 0.33.0 accepts an
+all-zero k schedule for DFlash at runtime; which module provides `nsys`; the
+per-domain document counts.
+
+---
+
 ## 15 Nov 2026: DeltaAI bring-up scripts (plan items E19 to E21)
 
 No jobs run, no GPU hours spent. Access to DeltaAI is confirmed, 100 hours

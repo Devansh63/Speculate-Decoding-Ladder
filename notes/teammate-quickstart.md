@@ -273,6 +273,12 @@ means read the log, and `COMPLETED` means every arm has a row. Table 3 of
 DeltaAI is ARM and needs its own build of vLLM. The steps, and what is
 still unverified, are in `env/deltaai.md`.
 
+The proposed DeltaAI measurement jobs (16 Nov, not yet run) are
+`code/submit_dtai2.sh` and `code/dtai2_bundle.sh`. What each job measures,
+why, the cost, and how to run and verify them:
+`notes/2026-11-16-dtai2-proposed-jobs.md`. Offline tests first:
+`cd code && bash test_dtai2.sh`.
+
 ### Pushing results to GitHub
 
 Optional, and it needs your own token so the commits are attributed to you.
