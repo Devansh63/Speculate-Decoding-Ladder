@@ -1,0 +1,5 @@
+dflash_2K_k7_j3614890.nsys-rep
+dflash_32K_k7_j3614890.nsys-rep
+ngram_gpu_32K_k5_j3614890.nsys-rep
+off_2K_k0_j3614890.nsys-rep
+off_32K_k0_j3614890.nsys-rep
