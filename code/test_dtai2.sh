@@ -112,7 +112,7 @@ case "$*" in *compute_cap*) echo "9.0"; exit 0 ;; esac
 case "$*" in *"--query-gpu=name --format"*) echo "NVIDIA GH200 480GB"; exit 0 ;; esac
 echo "NVIDIA GH200 480GB, 97871 MiB, 570.00"
 EOF
-printf '#!/bin/bash\necho "BUNDLE=$BUNDLE $*" >> "%s/sbatch.log"; echo $((RANDOM + 500000))\n' "$W" > "$W/bin/sbatch"
+printf '#!/bin/bash\necho "BUNDLE=$BUNDLE $* PIECE=${PIECE:-} ONLY_NGRAM_GPU=${ONLY_NGRAM_GPU-unset} ONLY_DFLASH=${ONLY_DFLASH-unset}" >> "%s/sbatch.log"; echo $((RANDOM + 500000))\n' "$W" > "$W/bin/sbatch"
 printf '#!/bin/bash\n[ "$1" = load ] && [ "$2" = none_such ] && exit 1\nexit 0\n' > "$W/bin/module"
 chmod +x "$W"/bin/*
 
@@ -149,7 +149,7 @@ unset LADDER_DOMDATA LADDER_KSCHED CELLS LOOPB GH200_FACTOR SMOKE GO PC LOOP MAX
 
 # ---------------------------------------------------------------- T1
 echo "T1 syntax"
-for f in dtai2_bundle.sh submit_dtai2.sh ksweep.sh; do check "bash -n $f" "bash -n '$CODE/$f'"; done
+for f in dtai2_bundle.sh submit_dtai2.sh ksweep.sh dtai2_pieces.sh; do check "bash -n $f" "bash -n '$CODE/$f'"; done
 for f in run_benchmark.v5b.py run_benchmark.v5c.py merge_domains.py nsys_v5.py; do
   check "compiles: $f" "python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' '$CODE/$f'"
 done
@@ -443,6 +443,70 @@ assert all(r["harness"].startswith("v5c") and r["warmup"]["mode"] == "outside"
 print("e2e ok")
 EOF
 check "rows: 4 prefill at max_tokens 1, k0 with the schedule and no drafts, 12 loop rows, all on v5c" "grep -q 'e2e ok' '$W/t9.txt'" "$(tail -3 "$W/t9.txt")"
+
+# ---------------------------------------------------------------- T10
+echo "T10 pieces: part of a bundle as its own job, and the submitter's arm counts"
+stub_arms () {  # cell log -> arms per cell, as ksweep.sh would run them (off + each k of each rung run)
+  awk -F'|' '{ r = $11; a = 1
+    if (r == "" || r ~ /(^| )ngram_gpu( |$)/) a += split($9, x, " ")
+    if (r == "" || r ~ /(^| )dflash( |$)/)    a += split($10, y, " ")
+    printf "%d ", a }' "$1"
+}
+plan_arms () {  # submitter output, bundle -> arms per cell from its plan line
+  awk -v b="$2" '$1 == b' "$1" | grep -o '([0-9]*)' | tr -d '()' | tr '\n' ' '
+}
+printf '#!/bin/bash\necho fake nsys\n' > "$W/bin/nsys"; chmod +x "$W/bin/nsys"
+for b in c1-2K c1-8K c1-32K conc-2K conc-8K conc-32K profile; do
+  rc=$(run_bundle "$b"); S BUNDLES="$b" >/dev/null
+  check "$b: submitter's arm counts equal what the bundle runs" "[ '$(stub_arms "$W/cells.$b")' = '$(plan_arms "$W/sub.out" "$b")' ]" "bundle: $(stub_arms "$W/cells.$b")  plan: $(plan_arms "$W/sub.out" "$b")"
+done
+for pc in "a|none|" "b|1 2|none" "c||7 11 15"; do
+  IFS='|' read -r tag ng df <<< "$pc"
+  args=(PIECE="$tag"); [ -n "$ng" ] && args+=(ONLY_NGRAM_GPU="$ng"); [ -n "$df" ] && args+=(ONLY_DFLASH="$df")
+  rc=$(run_bundle c1-32K "${args[@]}"); S BUNDLES=c1-32K "${args[@]}" >/dev/null
+  check "piece $tag of c1-32K: submitter's arm counts equal what the bundle runs" "[ '$(stub_arms "$W/cells.c1-32K")' = '$(plan_arms "$W/sub.out" c1-32K)' ]" "bundle: $(stub_arms "$W/cells.c1-32K")  plan: $(plan_arms "$W/sub.out" c1-32K)"
+done
+rm -f "$W/bin/nsys"
+rc=$(run_bundle c1-2K PIECE=a ONLY_DFLASH=none CELLS="core rep")
+printf '%s\n' "gh200v2_ksweep_2K_pa|2K|1||||||1 2 5 7 11||ngram_gpu||$V5C|data|" \
+  "gh200v2_rep_2K_pa|2K|1||||||5||ngram_gpu||$V5C|data|" > "$W/exp.pa"
+check "piece a: n-gram arms only, into _pa directories" "[ $rc -eq 0 ] && diff '$W/exp.pa' '$W/cells.c1-2K' >/dev/null" "$(diff "$W/exp.pa" "$W/cells.c1-2K" | head -4)"
+rc=$(run_bundle c1-2K PIECE=b ONLY_NGRAM_GPU=none ONLY_DFLASH="1 2 4" CELLS="core pre k0")
+check "piece b: core keeps dflash 1 2 4; pre and k0, left with nothing, are skipped and the job passes" \
+  "[ $rc -eq 0 ] && [ \"\$(cat '$W/cells.c1-2K')\" = 'gh200v2_ksweep_2K_pb|2K|1|||||||1 2 4|dflash||$V5C|data|' ] && [ \$(grep -c 'skipped: nothing of it in piece b' '$W/out.c1-2K') -eq 2 ] && grep -q 'cells run: 1 ' '$W/out.c1-2K'"
+rc=$(run_bundle conc-2K PIECE=x CELLS="c1")
+check "a CELLS split with a PIECE writes its conc cell to its own directory" "[ $rc -eq 0 ] && [ \"\$(cat '$W/cells.conc-2K')\" = 'gh200v2_conc_2K_px|2K|1|128|||||$CON|ngram_gpu dflash||$V5C|data|' ]"
+rc=$(run_bundle c1-2K ONLY_DFLASH=7);            check "bundle refuses ONLY_DFLASH without PIECE" "[ $rc -ne 0 ] && grep -q 'without PIECE' '$W/out.c1-2K' && [ ! -s '$W/cells.c1-2K' ]"
+rc=$(run_bundle c1-2K PIECE=a_b);                check "bundle refuses a PIECE that is not letters and digits" "[ $rc -ne 0 ] && [ ! -s '$W/cells.c1-2K' ]"
+rc=$(S BUNDLES=c1-2K ONLY_DFLASH=7);             check "submitter refuses ONLY_DFLASH without PIECE" "[ $rc -ne 0 ] && grep -q 'needs PIECE' '$W/sub.out'"
+rc=$(S BUNDLES=c1-2K WALL_H=0);                  check "submitter refuses WALL_H=0" "[ $rc -ne 0 ]"
+rc=$(S BUNDLES=c1-2K CELLS=k0 PIECE=z ONLY_DFLASH="1 2"); check "submitter refuses a piece that leaves nothing to run" "[ $rc -ne 0 ] && grep -q 'nothing to run' '$W/sub.out'"
+: > "$W/sbatch.log"
+rc=$(S GO=1 SMOKE="$W/smoke" BUNDLES=c1-2K CELLS=core PIECE=a ONLY_DFLASH=none WALL_H=1)
+check "GO with a piece: one job, 1 h, named dtai2-c1-2K-pa, its own log" "[ $rc -eq 0 ] && [ \$(grep -c . '$W/sbatch.log') -eq 1 ] && grep -q -- '--time=01:00:00 --job-name=dtai2-c1-2K-pa --output=.*/dtai2-c1-2K-pa-%j.out' '$W/sbatch.log' && grep -q '^BUNDLE=c1-2K' '$W/sbatch.log'"
+rc=$(S BUNDLES=c1-32K WALL_H=1);                 check "WALL_H below the estimate warns" "[ $rc -eq 0 ] && grep -q 'WARNING: c1-32K: the GH200 estimate' '$W/sub.out'"
+
+P () { (cd "$CODE" && env "$@" bash dtai2_pieces.sh SMOKE="$W/smoke" > "$W/pieces.out" 2>&1); echo $?; }
+rc=$(P GH200_FACTOR=0.199 LOAD_MIN=3)
+check "pieces plan: 46 pieces, none over 75% of its hour at the 2K factor, nothing submitted" "[ $rc -eq 0 ] && grep -q '^46 pieces planned' '$W/pieces.out' && ! grep -q WARNING '$W/pieces.out'" "$(grep -E 'WARNING|STOPPED' "$W/pieces.out" | head -3)"
+: > "$W/sbatch.log"
+rc=$(P GO=1)
+check "pieces GO: 46 jobs, all 1 h, 46 distinct job names" "[ $rc -eq 0 ] && [ \$(grep -c . '$W/sbatch.log') -eq 46 ] && [ \$(grep -c -- '--time=01:00:00' '$W/sbatch.log') -eq 46 ] && [ \$(grep -o -- '--job-name=[^ ]*' '$W/sbatch.log' | sort -u | grep -c .) -eq 46 ]"
+: > "$W/sbatch.log"
+rc=$(P GO=1 PIECES_FOR=conc-8K)
+check "PIECES_FOR limits the list to one bundle" "[ $rc -eq 0 ] && [ \$(grep -c . '$W/sbatch.log') -eq 6 ] && ! grep -qv '^BUNDLE=conc-8K' '$W/sbatch.log'"
+: > "$W/sbatch.log"
+rc=$(P GO=1 LADDER_DATA=/projects/x)
+check "pieces stop at the first refusal and submit nothing after it" "[ $rc -ne 0 ] && grep -q 'STOPPED at piece 1' '$W/pieces.out' && [ ! -s '$W/sbatch.log' ]"
+
+TRIAL="c1-32K:prek0 c1-2K:coreD2 conc-32K:c2"
+: > "$W/sbatch.log"; rc=$(P GO=1 ONLY_PIECES="$TRIAL")
+check "ONLY_PIECES submits exactly the three named pieces" "[ $rc -eq 0 ] && [ \$(grep -c . '$W/sbatch.log') -eq 3 ] && grep -q 'job-name=dtai2-c1-32K-pprek0 ' '$W/sbatch.log' && grep -q 'job-name=dtai2-c1-2K-pcoreD2 ' '$W/sbatch.log' && grep -q 'job-name=dtai2-conc-32K-pc2 ' '$W/sbatch.log'"
+check "the coreD2 piece passes both filters to the job" "grep 'pcoreD2 ' '$W/sbatch.log' | grep -q 'ONLY_NGRAM_GPU=none' && grep 'pcoreD2 ' '$W/sbatch.log' | grep -q 'ONLY_DFLASH=7 11 15'"
+: > "$W/sbatch.log"; rc=$(P GO=1 SKIP_PIECES="$TRIAL")
+check "SKIP_PIECES submits the other 43, none of the three" "[ $rc -eq 0 ] && [ \$(grep -c . '$W/sbatch.log') -eq 43 ] && ! grep -q 'pprek0 .*BUNDLE=c1-32K\|BUNDLE=c1-32K.*PIECE=prek0' '$W/sbatch.log' && ! grep -q 'PIECE=coreD2.*BUNDLE=c1-2K\|BUNDLE=c1-2K.*PIECE=coreD2' '$W/sbatch.log'"
+: > "$W/sbatch.log"; rc=$(P GO=1 ONLY_PIECES="c1-2K:coreX")
+check "an unknown piece name is refused before anything is submitted" "[ $rc -ne 0 ] && grep -q \"unknown piece 'c1-2K:coreX'\" '$W/pieces.out' && [ ! -s '$W/sbatch.log' ]"
 
 echo
 echo "passed $PASS, failed $FAIL"

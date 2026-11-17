@@ -70,6 +70,60 @@ directory overwrites the first.
 
 ---
 
+## 16 Nov 2026 (evening): first GH200 jobs, a stuck queue, and dtai2 in 1 h pieces
+
+Devansh, on DeltaAI with Sahil's venv (`/work/nvme/bikd/ssashi/Speculative_Ladder/vllm033_gh200`),
+models from `/work/nvme/bikd/dagraw2/Speculative_Ladder/hf/hub`, and the
+workloads copied from `/projects` to `/work/nvme/bikd/dagraw2/Speculative_Ladder/data/longbench_v2`
+(sha256 equal to the originals: 2K `3faddda8...`, 8K `ba1a7534...`, 32K `5704c985...`).
+
+**Jobs, all on `ghx4`, account `bikd-dtai-gh`.**
+
+| job | what | walltime | outcome |
+|---|---|---|---|
+| 3612174 | smoke on harness v5c, 2K, 5 prompts, off / ngram_gpu 5 / dflash 7 | 1 h | COMPLETED 7:01. Smoke gate passes; 15 of 15 requests carry engine timing |
+| 3612175 | the same smoke, submitted twice by a paste | 1 h | cancelled while pending, never ran |
+| 3612400 | `c1-2K` cells `k0 pre` | 1 h | COMPLETED 10:08, all checks of section 8.5 that apply pass (below) |
+| 3612403 | `profile` | 4 h, then 2 h | cancelled after 13 h pending |
+| 3612438 | `c1-2K` cells `core loopA acc rep` | 10 h, then 6 h | pending 13 h |
+| 3612461 to 3612465 | `c1-8K c1-32K conc-2K conc-8K conc-32K` | 12 to 16 h, then 6 to 9 h | pending 13 h |
+| 3614889 | `profile` cells `t64 t512` | 1 h | started 18:03 (51 min after submitting), COMPLETED 10:29; 3 + 3 arms, none failed |
+| 3614890 | `profile` cells `nsys2K nsys32K` | 1 h | started 18:04, COMPLETED 7:34; 2 + 3 arms, five `.nsys-rep` files in `gh200v2_nsys/nsys/` |
+
+**What the first two jobs showed.**
+
+- GH200 off arm at 2K, c=1: 1.55 s per prompt against 7.86 on the A40, a factor of 0.199.
+  Engine start is about 3 minutes per arm.
+- `k0` (DFlash k=7 under the schedule `1-1024:0`): vLLM 0.33.0 accepts it. The schedule reads
+  back as `[[1, 1024, 0]]`, the engine counts 0 drafts, and all 50 outputs are identical to the
+  off arm's by sha1. Carrying the idle drafter costs +3.1% (79.7 s against 77.4 s), above the
+  0.03 to 0.8% spread of repeated arms.
+- `pre` (one output token): 3.2 to 3.3 s for 50 prompts on every arm, about 4% of the off run.
+- `speculator_class` is `DFlashSpeculator` (5 layers, full attention, no causal flags set).
+- Every row: Model Runner V2, one async state, no warm-up prompt measured, engine timing on all
+  requests.
+
+**The queue.** At 17:08, 2747 jobs were waiting on `ghx4` (148 of 150 nodes allocated, 2 in
+the `ncsa_test` reservation) and ours ranked 1057th of 1857 by priority (fairshare 1497, age
+about 280). No per-user limit is set on the association or the QOS. `sshare` lists four users on
+`bikd-dtai-gh` (dagraw2, ntalati, ssashi, yichaoy2): the 100 hours `accounts` shows may be one
+pool for all four, not 100 each. Not yet confirmed.
+
+**Pieces.** Nothing asking for 2 h or more started in 13 hours; both 1 h jobs started within 20
+minutes. `dtai2_bundle.sh` and `submit_dtai2.sh` now take `PIECE`, `ONLY_NGRAM_GPU`,
+`ONLY_DFLASH` and `WALL_H` (see "pieces" in `dtai2_bundle.sh`), and `dtai2_pieces.sh` submits the
+remaining c1 and conc cells as 46 pieces of 1 h, each under 40 minutes at the 2K factor. Each
+piece runs its own off arm; results go to `gh200v2_*_p<tag>`. Offline tests: 103 pass.
+
+nsys is found on the compute nodes at `/opt/nvidia/hpc_sdk/Linux_aarch64/25.5/compilers/bin/nsys` (Nsight Systems 2025.3.1) with no module loaded. At 23:55 the six whole-bundle jobs were estimated to start 18 Nov 12:44.
+
+Next: since 3614889 and 3614890 started within an hour, first a trial of three pieces
+(`ONLY_PIECES="c1-32K:prek0 c1-2K:coreD2 conc-32K:c2"`: the 32K factor, both filters, the largest
+piece), then cancel 3612438 and 3612461 to 3612465 and submit the other 43 with `SKIP_PIECES` set to
+the same three. Results are pushed with `push_dtai2.sh` (first push 9d46c9b). The analysis scripts must read `gh200v2_*` and `gh200v2_*_p*` together.
+
+---
+
 ## 16 Nov 2026: dtai2 revised after an outside review (not submitted)
 
 No jobs run, no GPU hours spent. An adversarial read-only review of commit

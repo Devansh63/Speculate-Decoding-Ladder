@@ -646,3 +646,34 @@ DeltaAI either.
 - With `VLLM_USE_V2_MODEL_RUNNER=1` the config returns the environment value
   directly (`vllm/config/vllm.py:748-750`), so the harness's "engine resolved
   V1" abort cannot fire. Read from source by the review, not rechecked.
+
+---
+
+## 11. Addendum, 16 Nov evening: pieces of 1 h
+
+The first two real jobs (3612400, `c1-2K` cells `k0 pre`, and the smoke job
+3612174) passed every check of 8.5 that applies to them; `LOG.md` has the
+numbers. Two unknowns of 8.6 are settled: vLLM 0.33.0 accepts an all-zero
+schedule for DFlash, and engine start on the GH200 is about 3 minutes per arm.
+
+The queue settled a third the wrong way. After 13 hours on `ghx4`, with 2747
+jobs waiting, none of ours asking for 2 h or more had started, while both 1 h
+jobs had started within 20 minutes. So the bundles can now run as pieces:
+
+- `PIECE=<tag>` suffixes every results directory of the job with `_p<tag>`;
+  `ONLY_NGRAM_GPU` and `ONLY_DFLASH` keep only some k values of each cell
+  (`none` drops the rung). A cell left with no speculative arm is skipped.
+- `WALL_H` sets the walltime in whole hours and warns when the estimate is
+  over 75% of it.
+- `dtai2_pieces.sh` lists 46 pieces covering every c1 and conc cell not yet
+  run, each under 40 minutes at the 2K factor of 0.199.
+
+What this changes in the design. Every piece runs its own off arm, so each
+speedup still divides by an off arm from the same job and GPU (about 1.5
+GPU-hours more in all). `rep` no longer shares a job with `core`, so "rep
+against core" becomes a repeat across jobs and nodes, which is the harder
+test. The analysis must read `gh200v2_<cell>_<bucket>` and
+`gh200v2_<cell>_<bucket>_p<tag>` as one cell, joining each piece's arms to
+its own off arm. The 32K factor is still unmeasured; the `prek0` piece of
+`c1-32K` measures it, and at a factor of 0.35 the largest 32K piece is about
+50 minutes.

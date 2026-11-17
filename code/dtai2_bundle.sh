@@ -46,6 +46,8 @@
 #   CELLS    run only these cells of the bundle, e.g. "core rep"   default all
 #   NSYS     0 skips the nsys cells of the profile bundle          default 1
 #   LOOPB    1 adds the second per-prompt timing pass to c1 jobs   default 0
+#   PIECE, ONLY_NGRAM_GPU, ONLY_DFLASH   run part of a bundle as its own job,
+#            into directories suffixed _p<PIECE> (see "pieces" below)
 #   LADDER_DOMDATA  the merged domain files (merge_domains.py)
 #                   default $LADDER_ROOT/data/domains_balanced
 #
@@ -159,6 +161,38 @@ case "$BUNDLE" in
   *) echo "ABORT: BUNDLE='$BUNDLE'. One of c1-2K c1-8K c1-32K conc-2K conc-8K conc-32K dom-2K dom-8K dom-32K profile."
      exit 1 ;;
 esac
+
+# ------------------------------------------------------------ pieces
+# Added 16 Nov 2026 evening, after 13 hours in which nothing asking for 2 h or
+# more started on ghx4 (2747 jobs waiting) while both 1 h jobs started within
+# 20 minutes. A piece is part of a bundle sized to fit a 1 h walltime:
+#   PIECE=<tag>              letters and digits. Every results directory of
+#                            this job gets the suffix _p<tag>, so pieces that
+#                            run at the same time never append to one file.
+#                            Give every piece of a bundle its own tag.
+#   ONLY_NGRAM_GPU="<ks>"    keep only these GPU n-gram k values of each cell
+#   ONLY_DFLASH="<ks>"       keep only these DFlash k values of each cell
+#                            ("none" drops the rung; unset keeps the cell's list)
+# Each piece still runs its own off arm first (ksweep.sh always does), so every
+# speedup in a piece divides by an off arm timed on the same GPU in the same
+# job. A cell the filters leave with no speculative arm is skipped, not run as
+# off alone. Splitting a bundle by CELLS across parallel jobs also needs a
+# PIECE per job: the conc cells share gh200v2_conc_<b> and the two nsys cells
+# share gh200v2_nsys.
+PIECE=${PIECE:-}
+if [ -n "$PIECE" ] && ! [[ "$PIECE" =~ ^[A-Za-z0-9]+$ ]]; then
+  echo "ABORT: PIECE='$PIECE'. Letters and digits only (it goes into directory names)."
+  exit 1
+fi
+if [ -z "$PIECE" ] && { [ -n "${ONLY_NGRAM_GPU+x}" ] || [ -n "${ONLY_DFLASH+x}" ]; }; then
+  echo "ABORT: ONLY_NGRAM_GPU or ONLY_DFLASH without PIECE. A piece needs a tag so its rows land in their own directories."
+  exit 1
+fi
+keep_k () {  # $1 the cell's k list, $2 the k values to keep -> the kept ones, in the cell's order
+  local out="" k
+  for k in $1; do case " $2 " in *" $k "*) out="$out $k" ;; esac; done
+  echo "${out# }"
+}
 
 for v in LADDER_ROOT LADDER_VENV LADDER_MRV2 LADDER_CAPS LADDER_HF LADDER_DATA LADDER_CACHE; do
   if [ -z "${!v:-}" ]; then
@@ -295,11 +329,32 @@ cell () {  # $1 name, $2 bucket, then KEY=VALUE pairs for ksweep.sh
           LADDER_RUN LADDER_OUT LADDER_KSCHED LADDER_WARMUP SEED TEMP PLMIN PLMAX
     export BUCKET="$bucket" DOMAIN=all LADDER_RUN="$V5C"
     for kv in "$@"; do export "$kv"; done
+    if [ -n "$PIECE" ]; then
+      # RUNGS unset means ksweep.sh's Model Runner V2 default.
+      left=""
+      for r in ${RUNGS:-ngram_gpu dflash}; do
+        case "$r" in
+          ngram_gpu) [ -n "${ONLY_NGRAM_GPU+x}" ] && export K_NGRAM_GPU="$(keep_k "${K_NGRAM_GPU:-}" "$ONLY_NGRAM_GPU")"
+                     [ -n "${K_NGRAM_GPU:-}" ] && left="$left ngram_gpu" ;;
+          dflash)    [ -n "${ONLY_DFLASH+x}" ] && export K_DFLASH="$(keep_k "${K_DFLASH:-}" "$ONLY_DFLASH")"
+                     [ -n "${K_DFLASH:-}" ] && left="$left dflash" ;;
+          *)         left="$left $r" ;;
+        esac
+      done
+      if [ -z "$left" ]; then
+        echo "skip cell $name: piece $PIECE leaves it no speculative arm"
+        exit 97
+      fi
+      export RUNGS="${left# }" LADDER_OUT="${LADDER_OUT}_p$PIECE"
+    fi
     mkdir -p "$LADDER_OUT"
     echo "cell $name: CONC=${CONC:-1} LIMIT=${LIMIT:-default} PC=${PC:-default} LOOP=${LOOP:-} PERREQ=${PERREQ:-none} MAXTOK=${MAXTOK:-256} RUNGS=${RUNGS:-default} K_NGRAM_GPU='${K_NGRAM_GPU:-}' K_DFLASH='${K_DFLASH:-}' KSCHED=${LADDER_KSCHED:-none} RUN=$(basename "$LADDER_RUN") DATA=$LADDER_DATA OUT=$LADDER_OUT"
     bash "$KS"
   )
   local rc=$?
+  if [ "$rc" -eq 97 ] && [ -n "$PIECE" ]; then
+    RAN=$((RAN - 1)); STATUS+=("cell $name skipped: nothing of it in piece $PIECE"); return 0
+  fi
   STATUS+=("cell $name bucket=$bucket exit=$rc")
   [ "$rc" -eq 0 ] || FAILED=$((FAILED + 1))
 }

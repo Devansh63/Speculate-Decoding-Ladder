@@ -41,6 +41,12 @@
 #             GH200_FACTOR, and at GH200 speed it is a large share of the total.
 #   SMOKE_LOG the smoke job's Slurm log (logs/phase0-ksweep-<job>.out)
 #   PART      default ghx4. ghx4-interactive charges 2x and allows one job.
+#   PIECE, ONLY_NGRAM_GPU, ONLY_DFLASH  submit part of a bundle as its own
+#             job (see "pieces" in dtai2_bundle.sh). The job is named
+#             dtai2-<bundle>-p<PIECE> and its results go to gh200v2_*_p<PIECE>.
+#   WALL_H    walltime in whole hours for every job of this call, in place of
+#             the A40-speed ceiling. Warns when the estimate is over 75% of it.
+#             Added for ghx4's backlog, where only 1 h jobs were starting.
 #
 #   GH200_FACTOR  GH200 time as a fraction of A40 time, for the estimate.
 #             Default auto: measured from any GH200 rows already on disk (the
@@ -186,6 +192,20 @@ case " ${CELLS:-} " in
   *" loopB "*) [ "${LOOPB:-0}" = "1" ] || { echo "CELLS asks for loopB: add LOOPB=1" >&2; exit 1; } ;;
 esac
 
+# ------------------------------------------------------------ pieces
+# See "pieces" in dtai2_bundle.sh. WALL_H sets the walltime of every job of
+# this call, in whole hours, in place of the A40-speed ceiling.
+PIECE=${PIECE:-}
+if [ -n "$PIECE" ] && ! [[ "$PIECE" =~ ^[A-Za-z0-9]+$ ]]; then
+  echo "PIECE='$PIECE': letters and digits only" >&2; exit 1
+fi
+if [ -z "$PIECE" ] && { [ -n "${ONLY_NGRAM_GPU+x}" ] || [ -n "${ONLY_DFLASH+x}" ]; }; then
+  echo "ONLY_NGRAM_GPU or ONLY_DFLASH needs PIECE=<tag>" >&2; exit 1
+fi
+case "${WALL_H:-1}" in ''|*[!0-9]*|0) echo "WALL_H='${WALL_H:-}': whole hours, 1 to 47" >&2; exit 1 ;; esac
+[ "${WALL_H:-1}" -le 47 ] || { echo "WALL_H=$WALL_H: ghx4 allows 48 h" >&2; exit 1; }
+TAG=""; [ -n "$PIECE" ] && TAG="-p$PIECE"
+
 # ------------------------------------------------------------ GH200 timing
 # A40 off-arm seconds per prompt at c=1, 256 tokens: 7.86 / 9.25 / 17.2.
 FACTOR=${GH200_FACTOR:-auto}
@@ -293,38 +313,59 @@ cellmin () {  # arms bucket conc prompts kind [factor] -> minutes
   awk -v a="$1" -v s="$(spp "$2" "$3" "$5")" -v f="$f" -v n="$4" -v l="$load" \
       'BEGIN { printf "%d", a * (l + (n + 2) * s * f / 60) + 0.5 }'
 }
-# One line per cell: name arms bucket conc prompts kind
+# One line per cell: name bucket conc prompts kind ngram_gpu-ks dflash-ks, the
+# k lists comma-joined ("-" for a rung the cell does not run). They mirror the
+# arm sets in dtai2_bundle.sh; test_dtai2.sh checks the two agree. Arms are
+# counted from them: off plus one per k.
+F_NG=1,2,5,7,11; F_DF=1,2,4,7,11,15; R_NG=5; R_DF=7,15; C_NG=2,5; C_DF=2,4,7,15; P_NG=5; P_DF=7
 cells_of () {
   local b=${1#*-}
   case "$1" in
     c1-*)
       local n=50; [ "$b" = "32K" ] && n=25
-      echo "core 12 $b 1 $n dec"; echo "pre 4 $b 1 $n pre"; echo "loopA 12 $b 1 $n dec"
-      echo "acc 7 $b 1 $n dec";   echo "k0 2 $b 1 $n dec"
-      [ "$b" = "32K" ] && echo "nopc 4 $b 1 $n dec"
-      [ "${LOOPB:-0}" = "1" ] && echo "loopB 12 $b 1 $n dec"
-      echo "rep 4 $b 1 $n dec" ;;
-    conc-2K)  echo "pre1 3 2K 1 128 pre"; for c in 1 4 8 16 32; do echo "c$c 7 2K $c 128 dec"; done
-              echo "preTop 3 2K 32 128 pre" ;;
-    conc-8K)  echo "pre1 3 8K 1 128 pre"; for c in 1 4 8 16;    do echo "c$c 7 8K $c 128 dec"; done
-              echo "preTop 3 8K 16 128 pre" ;;
-    conc-32K) echo "pre1 3 32K 1 48 pre"; for c in 1 2 4 8;     do echo "c$c 7 32K $c 48 dec"; done
-              echo "preTop 3 32K 8 48 pre" ;;
+      echo "core $b 1 $n dec $F_NG $F_DF"; echo "pre $b 1 $n pre $R_NG $R_DF"; echo "loopA $b 1 $n dec $F_NG $F_DF"
+      echo "acc $b 1 $n dec $C_NG $C_DF";  echo "k0 $b 1 $n dec - 7"
+      [ "$b" = "32K" ] && echo "nopc $b 1 $n dec $R_NG $R_DF"
+      [ "${LOOPB:-0}" = "1" ] && echo "loopB $b 1 $n dec $F_NG $F_DF"
+      echo "rep $b 1 $n dec $R_NG $R_DF" ;;
+    conc-2K)  echo "pre1 2K 1 128 pre $P_NG $P_DF"; for c in 1 4 8 16 32; do echo "c$c 2K $c 128 dec $C_NG $C_DF"; done
+              echo "preTop 2K 32 128 pre $P_NG $P_DF" ;;
+    conc-8K)  echo "pre1 8K 1 128 pre $P_NG $P_DF"; for c in 1 4 8 16;    do echo "c$c 8K $c 128 dec $C_NG $C_DF"; done
+              echo "preTop 8K 16 128 pre $P_NG $P_DF" ;;
+    conc-32K) echo "pre1 32K 1 48 pre $P_NG $P_DF"; for c in 1 2 4 8;     do echo "c$c 32K $c 48 dec $C_NG $C_DF"; done
+              echo "preTop 32K 8 48 pre $P_NG $P_DF" ;;
     dom-*)
       # Without the file, an upper bound: six domains at --n 50 / --n32 25.
       local n=300; [ "$b" = "32K" ] && n=150
       local f=$DOMDATA/longbench_v2_$b.jsonl
       [ -s "$f" ] && n=$(( $(grep -c . "$f") - 2 ))   # the last two are the warm-up
-      echo "domloop 4 $b 1 $n dec"; echo "domacc 7 $b 1 $n dec" ;;
+      echo "domloop $b 1 $n dec $R_NG $R_DF"; echo "domacc $b 1 $n dec $C_NG $C_DF" ;;
     profile)
-      echo "t64 3 32K 1 10 t64"; echo "t512 3 32K 1 10 t512"
-      echo "nsys2K 2 2K 1 3 nsys"; echo "nsys32K 3 32K 1 3 nsys" ;;
+      echo "t64 32K 1 10 t64 5 7"; echo "t512 32K 1 10 t512 5 7"
+      echo "nsys2K 2K 1 3 nsys - 7"; echo "nsys32K 32K 1 3 nsys 5 7" ;;
     *) echo "unknown bundle '$1'" >&2; return 1 ;;
   esac
+}
+keep_k () {  # as in dtai2_bundle.sh
+  local out="" k
+  for k in $1; do case " $2 " in *" $k "*) out="$out $k" ;; esac; done
+  echo "${out# }"
+}
+arms_of () {  # ngram_gpu-ks dflash-ks -> arms this job runs of the cell; 0 if the piece leaves none
+  local ng=${1//,/ } df=${2//,/ }
+  [ "$1" = "-" ] && ng=""; [ "$2" = "-" ] && df=""
+  if [ -n "$PIECE" ]; then
+    [ -n "${ONLY_NGRAM_GPU+x}" ] && ng=$(keep_k "$ng" "$ONLY_NGRAM_GPU")
+    [ -n "${ONLY_DFLASH+x}" ] && df=$(keep_k "$df" "$ONLY_DFLASH")
+    [ -z "$ng$df" ] && { echo 0; return; }
+  fi
+  set -- $ng $df
+  echo $(( $# + 1 ))
 }
 
 TOTAL=0
 PLAN=()
+WARN=()
 DOM_MISSING=()
 printf "%-9s %-72s %8s %8s\n" bundle "cells (arms)" "estimate" walltime
 for bn in $BUNDLES; do
@@ -334,8 +375,10 @@ for bn in $BUNDLES; do
   esac
   lines=$(cells_of "$bn") || exit 1
   m=0; mc=0; desc=""
-  while read -r name arms b c n kind; do
+  while read -r name b c n kind ng df; do
     [ -n "${CELLS:-}" ] && case " $CELLS " in *" $name "*) ;; *) continue ;; esac
+    arms=$(arms_of "$ng" "$df")
+    [ "$arms" -eq 0 ] && continue
     m=$((m + $(cellmin "$arms" "$b" "$c" "$n" "$kind")))
     mc=$((mc + $(cellmin "$arms" "$b" "$c" "$n" "$kind" 1.0)))
     desc="$desc $name($arms)"
@@ -346,6 +389,12 @@ for bn in $BUNDLES; do
   h=$(awk -v m="$mc" 'BEGIN { h = int(m * 1.6 / 60) + 1; if (h > 47) h = 47; print h }')
   # The profiler's slowdown with CUDA-graph node tracing has not been measured.
   [ "$bn" = "profile" ] && [ "${NSYS:-1}" = "1" ] && [ "$h" -lt 4 ] && h=4
+  if [ -n "${WALL_H:-}" ]; then
+    h=$WALL_H
+    awk -v m="$m" -v h="$h" 'BEGIN { exit !(m > 0.75 * h * 60) }' &&
+      WARN+=("$bn: the GH200 estimate, $m min, is over 75% of WALL_H=${h} h; a slow arm could time out")
+  fi
+  [ "$m" -eq 0 ] && { echo "$bn: nothing to run (CELLS='${CELLS:-}' with this piece)" >&2; exit 1; }
   note=""
   case "$bn" in
     dom-*) [ -s "$DOMDATA/longbench_v2_${bn#*-}.jsonl" ] || { note="  NO DOMAIN FILE"; DOM_MISSING+=("$bn"); } ;;
@@ -361,6 +410,8 @@ awk -v m="$TOTAL" -v n="${#PLAN[@]}" -v f="$FACTOR" -v b="$BUDGET_H" 'BEGIN {
 echo "GH200/A40 time factor: $FACTOR ($FACTOR_SRC). Override with GH200_FACTOR=<x>."
 echo "Engine start per arm: $LOAD_MIN min ($LOAD_SRC). Not scaled by the factor."
 echo "Check the balance first:  accounts"
+[ -n "$PIECE" ] && echo "Piece $PIECE: results go to gh200v2_*_p$PIECE; ONLY_NGRAM_GPU='${ONLY_NGRAM_GPU-all}' ONLY_DFLASH='${ONLY_DFLASH-all}'."
+for w in ${WARN[@]+"${WARN[@]}"}; do echo "WARNING: $w"; done
 if [ "${#DOM_MISSING[@]}" -gt 0 ]; then
   echo
   echo "Domain files missing for: ${DOM_MISSING[*]}. Build them first (login node, minutes):"
@@ -398,9 +449,9 @@ for p in "${PLAN[@]}"; do
   esac
   JID=$(BUNDLE=$bn sbatch --parsable --partition="$PART" --account="$ACCOUNT" \
           --nodes=1 --gpus-per-node=1 --cpus-per-task=16 --mem=64g \
-          --time="$(printf '%02d' "$h"):00:00" --job-name="dtai2-$bn" \
-          --output="$LADDER_ROOT/logs/dtai2-$bn-%j.out" --export=ALL dtai2_bundle.sh)
-  echo "submitted $JID  bundle $bn  walltime ${h}h  log $LADDER_ROOT/logs/dtai2-$bn-$JID.out"
+          --time="$(printf '%02d' "$h"):00:00" --job-name="dtai2-$bn$TAG" \
+          --output="$LADDER_ROOT/logs/dtai2-$bn$TAG-%j.out" --export=ALL dtai2_bundle.sh)
+  echo "submitted $JID  bundle $bn$TAG  walltime ${h}h  log $LADDER_ROOT/logs/dtai2-$bn$TAG-$JID.out"
 done
 echo
 echo "watch:   squeue -u $USER      (PD with QOSMaxJobsPerUserLimit = waiting its turn)"
