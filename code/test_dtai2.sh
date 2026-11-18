@@ -54,8 +54,11 @@ cat > "$W/stub/vllm/__init__.py" <<'EOF'
 __version__ = "0.33.0-stub"
 import os, types
 class SamplingParams:
-    def __init__(self, temperature=0.0, max_tokens=256, seed=0):
+    def __init__(self, temperature=0.0, max_tokens=256, seed=0, ignore_eos=False):
         self.max_tokens = max_tokens
+        self.ignore_eos = ignore_eos
+        if ignore_eos:
+            open(os.environ.get("STUB_SP_LOG", "/dev/null"), "a").write("ignore_eos=True\n")
 class _Spec:
     def __init__(self, d):
         self.method = d.get("method")
@@ -120,6 +123,7 @@ chmod +x "$W"/bin/*
 cat > "$W/ks.sh" <<'EOF'
 #!/bin/bash
 echo "$(basename "$LADDER_OUT")|$BUCKET|${CONC:-}|${LIMIT:-}|${MAXTOK:-}|${PERREQ:-}|${LOOP:-}|${PC:-}|${K_NGRAM_GPU:-}|${K_DFLASH:-}|${RUNGS:-}|${LADDER_KSCHED:-}|$(basename "${LADDER_RUN:-v5}")|$(basename "$LADDER_DATA")|${SEED:-}${TEMP:-}${PLMIN:-}${PLMAX:-}${LADDER_WARMUP:-}" >> "$CELLLOG"
+echo "$(basename "$LADDER_OUT")|${PSTYLE:-}|${IGNORE_EOS:-}|$LADDER_DATA" >> "$CELLLOG.x"
 exit 0
 EOF
 chmod +x "$W/ks.sh"
@@ -210,7 +214,7 @@ R = lambda d: [json.loads(l) for l in open(os.path.join(W, d, "results.jsonl"))]
 P = lambda d, r: json.load(open(os.path.join(W, d, r["perreq"])))
 a, c = R("hv5"), R("hv5c")
 skip = {"harness", "elapsed_s", "throughput_tok_s", "env", "perreq"}
-add = {"k_schedule_requested", "draft_config", "warmup", "per_request_engine_timing"}
+add = {"k_schedule_requested", "draft_config", "warmup", "per_request_engine_timing", "ignore_eos"}
 assert len(a) == len(c) == 3
 for x, y in zip(a, c):
     dx = {k: v for k, v in x.items() if k not in skip}
@@ -507,6 +511,46 @@ check "the coreD2 piece passes both filters to the job" "grep 'pcoreD2 ' '$W/sba
 check "SKIP_PIECES submits the other 43, none of the three" "[ $rc -eq 0 ] && [ \$(grep -c . '$W/sbatch.log') -eq 43 ] && ! grep -q 'pprek0 .*BUNDLE=c1-32K\|BUNDLE=c1-32K.*PIECE=prek0' '$W/sbatch.log' && ! grep -q 'PIECE=coreD2.*BUNDLE=c1-2K\|BUNDLE=c1-2K.*PIECE=coreD2' '$W/sbatch.log'"
 : > "$W/sbatch.log"; rc=$(P GO=1 ONLY_PIECES="c1-2K:coreX")
 check "an unknown piece name is refused before anything is submitted" "[ $rc -ne 0 ] && grep -q \"unknown piece 'c1-2K:coreX'\" '$W/pieces.out' && [ ! -s '$W/sbatch.log' ]"
+
+# ---------------------------------------------------------------- T11
+echo "T11 task-type bundles and pieces"
+for T in code summ fewshot mdqa; do for b in 2K 8K; do
+  mkdir -p "$W/root/data/tasks/$T"
+  for i in $(seq 1 52); do echo "{\"_id\":\"$T$i\",\"context\":\"x\"}"; done > "$W/root/data/tasks/$T/longbench_v2_$b.jsonl"
+done; done
+for b in 2K 8K; do
+  : > "$W/cells.task-$b.x"; rc=$(run_bundle "task-$b")
+  check "task-$b: four cells, 50 prompts each, off + n-gram 5 11 + DFlash 7 15, own data and output" \
+    "[ $rc -eq 0 ] && [ \"\$(cut -d'|' -f1-4,9,10 '$W/cells.task-$b' | tr '\n' ' ')\" = 'gh200v2_tcode_$b|$b|1|50|5 11|7 15 gh200v2_tsumm_$b|$b|1|50|5 11|7 15 gh200v2_tfewshot_$b|$b|1|50|5 11|7 15 gh200v2_tmdqa_$b|$b|1|50|5 11|7 15 ' ]" \
+    "$(cut -d'|' -f1-4,9,10 "$W/cells.task-$b" | tr '\n' ' ')"
+  check "task-$b: every cell gets PSTYLE=context, IGNORE_EOS=1 and its task's directory" \
+    "[ \$(grep -c '|context|1|$W/root/data/tasks/' '$W/cells.task-$b.x') -eq 4 ] && grep -q 'tcode_$b|context|1|$W/root/data/tasks/code$' '$W/cells.task-$b.x'"
+done
+rc=$(run_bundle c1-2K)
+check "PSTYLE and IGNORE_EOS do not leak into other cells" "! grep -q '|context|\||1|' '$W/cells.c1-2K.x'"
+mv "$W/root/data/tasks/mdqa/longbench_v2_8K.jsonl" "$W/mdqa8K.bak"
+rc=$(run_bundle task-8K)
+check "a missing task file fails that cell only" "[ $rc -ne 0 ] && grep -q 'SKIP cell mdqa: no .*tasks/mdqa/longbench_v2_8K.jsonl' '$W/out.task-8K' && [ \$(grep -c . '$W/cells.task-8K') -eq 3 ]"
+: > "$W/sbatch.log"; rc=$(S GO=1 SMOKE="$W/smoke" BUNDLES=task-8K CELLS=mdqa PIECE=mdqa WALL_H=1)
+check "the submitter holds back a task piece whose file is missing" "grep -q 'NOT SUBMITTED: task-8K' '$W/sub.out' && [ ! -s '$W/sbatch.log' ]"
+mv "$W/mdqa8K.bak" "$W/root/data/tasks/mdqa/longbench_v2_8K.jsonl"
+for b in task-2K task-8K; do
+  rc=$(run_bundle "$b"); S BUNDLES="$b" >/dev/null
+  check "$b: submitter's arm counts equal what the bundle runs" "[ '$(stub_arms "$W/cells.$b")' = '$(plan_arms "$W/sub.out" "$b")' ]" "bundle: $(stub_arms "$W/cells.$b")  plan: $(plan_arms "$W/sub.out" "$b")"
+done
+: > "$W/sbatch.log"; rc=$(P GO=1 PIECESET=task)
+check "PIECESET=task: 8 pieces, 2K first, each one task, 1 h, distinct names" \
+  "[ $rc -eq 0 ] && [ \$(grep -c . '$W/sbatch.log') -eq 8 ] && [ \"\$(grep -o -- '--job-name=[^ ]*' '$W/sbatch.log' | tr '\n' ' ')\" = '--job-name=dtai2-task-2K-pcode --job-name=dtai2-task-2K-psumm --job-name=dtai2-task-2K-pfewshot --job-name=dtai2-task-2K-pmdqa --job-name=dtai2-task-8K-pcode --job-name=dtai2-task-8K-psumm --job-name=dtai2-task-8K-pfewshot --job-name=dtai2-task-8K-pmdqa ' ] && [ \$(grep -c -- '--time=01:00:00' '$W/sbatch.log') -eq 8 ]" \
+  "$(grep -o -- '--job-name=[^ ]*' "$W/sbatch.log" | tr '\n' ' ')"
+: > "$W/sbatch.log"; rc=$(P GO=1 PIECESET=task ONLY_PIECES="task-8K:code")
+check "ONLY_PIECES works on the task list" "[ $rc -eq 0 ] && [ \$(grep -c . '$W/sbatch.log') -eq 1 ] && grep -q 'dtai2-task-8K-pcode ' '$W/sbatch.log'"
+rc=$(P PIECESET=bogus)
+check "an unknown PIECESET is refused" "[ $rc -ne 0 ]"
+
+mkdir -p "$W/hv5ce"; : > "$W/sp.log"
+STUB_SP_LOG="$W/sp.log" H run_benchmark.v5c.py "$W/hv5ce" --rung off --ignore-eos --prompt-style context
+check "harness: --ignore-eos reaches SamplingParams and is recorded in the row" \
+  "grep -q 'ignore_eos=True' '$W/sp.log' && python3 -c \"import json,glob; r=[json.loads(l) for f in glob.glob('$W/hv5ce/results.jsonl') for l in open(f)][0]; assert r['ignore_eos'] is True and r['prompt_style']=='context' and r['harness']=='v5c-2026-11-18'\"" "$(tail -3 "$W/hv5ce.log")"
 
 echo
 echo "passed $PASS, failed $FAIL"

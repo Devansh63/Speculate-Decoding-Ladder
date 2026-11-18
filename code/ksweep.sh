@@ -57,6 +57,12 @@
 #   LOOP          1 = one prompt at a time with per-prompt latency (CONC=1 only;
 #                 a separate population, never pooled with batched rows)
 #   MAXTOK, SEED, TEMP, PLMIN, PLMAX   as in phase0.v3.sh
+#   PSTYLE        qa | context  how the harness builds a prompt   default qa
+#                 (context: the file's context field is the whole prompt; the
+#                 task-type workloads from build_task_workloads.py need it)
+#   IGNORE_EOS    1 = every request runs to MAXTOK tokens        default 0
+#                 (free-form tasks can stop early, and at different points
+#                 in different arms; this keeps every arm at the same length)
 #
 # Mandatory, as on every job (RULES section 4): LADDER_VENV and LADDER_OUT.
 # LADDER_OUT is used as given; submit_ksweep.sh sets one directory per domain.
@@ -152,6 +158,8 @@ XARGS="$DOMARG"
 [ -n "${PLMIN:-}" ] && XARGS="$XARGS --prompt-lookup-min $PLMIN"
 [ -n "${PLMAX:-}" ] && XARGS="$XARGS --prompt-lookup-max $PLMAX"
 [ -n "${PERREQ:-}" ] && [ "$PERREQ" != "none" ] && XARGS="$XARGS --per-request-spec $PERREQ"
+[ -n "${PSTYLE:-}" ] && XARGS="$XARGS --prompt-style $PSTYLE"
+[ "${IGNORE_EOS:-0}" = "1" ] && XARGS="$XARGS --ignore-eos"
 case "${PC:-}" in
   "")  ;;
   on)  XARGS="$XARGS --prefix-caching" ;;

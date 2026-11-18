@@ -42,13 +42,15 @@
 # ------------------------------------------------------------------ knobs
 #
 #   BUNDLE   c1-2K c1-8K c1-32K | conc-2K conc-8K conc-32K |
-#            dom-2K dom-8K dom-32K | profile                   (mandatory)
+#            dom-2K dom-8K dom-32K | task-2K task-8K | profile (mandatory)
 #   CELLS    run only these cells of the bundle, e.g. "core rep"   default all
 #   NSYS     0 skips the nsys cells of the profile bundle          default 1
 #   LOOPB    1 adds the second per-prompt timing pass to c1 jobs   default 0
 #   PIECE, ONLY_NGRAM_GPU, ONLY_DFLASH   run part of a bundle as its own job,
 #            into directories suffixed _p<PIECE> (see "pieces" below)
 #   LADDER_DOMDATA  the merged domain files (merge_domains.py)
+#   LADDER_TASKDATA the task-type files (build_task_workloads.py)
+#                   default $LADDER_ROOT/data/tasks
 #                   default $LADDER_ROOT/data/domains_balanced
 #
 # Mandatory environment, exported by deltaai_env.sh and passed through by
@@ -134,6 +136,19 @@
 #   domloop stays at four settings: it answers the domain question. The
 #   router's oracle over every setting comes from loopA and loopB.
 #
+# task-<B> (added 18 Nov), task-type workloads from build_task_workloads.py,
+# 50 prompts each at exactly <B> tokens, concurrency 1, every request run to
+# 256 tokens (IGNORE_EOS=1, so arms that change the text still generate the
+# same number of tokens), the whole prompt in the file (PSTYLE=context):
+#   code     code completion (LongBench lcc, repobench-p)   -> gh200v2_tcode_<B>
+#   summ     report summarization (gov_report)              -> gh200v2_tsumm_<B>
+#   fewshot  few-shot dialogue summarization (samsum)       -> gh200v2_tfewshot_<B>
+#   mdqa     multi-document QA (hotpotqa)                   -> gh200v2_tmdqa_<B>
+#   Each with TASKSET: off, GPU n-gram k 5 and 11, DFlash k 7 and 15 (the best
+#   k of each drafter at 2K and 8K in the core cells, and a middle one).
+#   32K is not offered: none of these tasks has 25 documents that long
+#   without padding.
+#
 # profile, all at concurrency 1:
 #   t64, t512  32K, 10 prompts, max_tokens 64 and 512, off + ngram_gpu 5 +
 #              dflash 7          -> results/gh200v2_outlen_t64 / _t512
@@ -157,8 +172,8 @@ set -uo pipefail
 
 BUNDLE=${BUNDLE:-}
 case "$BUNDLE" in
-  c1-2K|c1-8K|c1-32K|conc-2K|conc-8K|conc-32K|dom-2K|dom-8K|dom-32K|profile) ;;
-  *) echo "ABORT: BUNDLE='$BUNDLE'. One of c1-2K c1-8K c1-32K conc-2K conc-8K conc-32K dom-2K dom-8K dom-32K profile."
+  c1-2K|c1-8K|c1-32K|conc-2K|conc-8K|conc-32K|dom-2K|dom-8K|dom-32K|task-2K|task-8K|profile) ;;
+  *) echo "ABORT: BUNDLE='$BUNDLE'. One of c1-2K c1-8K c1-32K conc-2K conc-8K conc-32K dom-2K dom-8K dom-32K task-2K task-8K profile."
      exit 1 ;;
 esac
 
@@ -216,7 +231,7 @@ if [ "$LADDER_CAPS" != "90" ]; then
 fi
 # Delta's /projects may not be mounted on DeltaAI's compute nodes. Nothing a
 # job reads or writes may live there.
-for v in LADDER_ROOT LADDER_VENV LADDER_HF LADDER_DATA LADDER_CACHE LADDER_DOMDATA LADDER_RESULTS; do
+for v in LADDER_ROOT LADDER_VENV LADDER_HF LADDER_DATA LADDER_CACHE LADDER_DOMDATA LADDER_TASKDATA LADDER_RESULTS; do
   case "${!v:-}" in
     /projects/*) echo "ABORT: $v=${!v} is under /projects. Use the copies under /work/nvme."; exit 1 ;;
   esac
@@ -232,6 +247,7 @@ KS=${LADDER_KSWEEP:-$HERE/ksweep.sh}
 V5C=$HERE/run_benchmark.v5c.py
 RES=${LADDER_RESULTS:-$LADDER_ROOT/results}
 DOMDATA=${LADDER_DOMDATA:-$LADDER_ROOT/data/domains_balanced}
+TASKDATA=${LADDER_TASKDATA:-$LADDER_ROOT/data/tasks}
 NSYS=${NSYS:-1}
 JOB=${SLURM_JOB_ID:-nojob}
 [ -f "$KS" ] || { echo "ABORT: no $KS. Submit from the repository's code/ directory."; exit 1; }
@@ -306,6 +322,7 @@ FULL=("K_NGRAM=1 2 5 7 11" "K_NGRAM_GPU=1 2 5 7 11" "K_DFLASH=1 2 4 7 11 15")
 REDUCED=("K_NGRAM=5" "K_NGRAM_GPU=5" "K_DFLASH=7 15")
 CONCSET=("K_NGRAM=2 5" "K_NGRAM_GPU=2 5" "K_DFLASH=2 4 7 15")
 PRESET=("K_NGRAM=5" "K_NGRAM_GPU=5" "K_DFLASH=7")
+TASKSET=("K_NGRAM=5 11" "K_NGRAM_GPU=5 11" "K_DFLASH=7 15")
 
 STATUS=()
 FAILED=0
@@ -326,7 +343,8 @@ cell () {  # $1 name, $2 bucket, then KEY=VALUE pairs for ksweep.sh
   # the next. LADDER_DATA is only ever overridden inside the subshell.
   (
     unset CONC LIMIT PC PERREQ LOOP MAXTOK K_NGRAM K_NGRAM_GPU K_DFLASH RUNGS \
-          LADDER_RUN LADDER_OUT LADDER_KSCHED LADDER_WARMUP SEED TEMP PLMIN PLMAX
+          LADDER_RUN LADDER_OUT LADDER_KSCHED LADDER_WARMUP SEED TEMP PLMIN PLMAX \
+          PSTYLE IGNORE_EOS
     export BUCKET="$bucket" DOMAIN=all LADDER_RUN="$V5C"
     for kv in "$@"; do export "$kv"; done
     if [ -n "$PIECE" ]; then
@@ -410,6 +428,18 @@ case "$BUNDLE" in
       fail_cell domloop "no $F (run make_domains.py and merge_domains.py first)"
       fail_cell domacc  "no $F"
     fi
+    ;;
+  task-*)
+    for T in code summ fewshot mdqa; do
+      F=$TASKDATA/$T/longbench_v2_$B.jsonl
+      if [ -s "$F" ]; then
+        N=$(( $(grep -c . "$F") - 2 )); [ "$N" -gt 50 ] && N=50
+        cell "$T" "$B" CONC=1 LIMIT="$N" "${TASKSET[@]}" PSTYLE=context IGNORE_EOS=1 \
+             LADDER_DATA="$TASKDATA/$T" LADDER_OUT="$RES/gh200v2_t${T}_$B"
+      else
+        fail_cell "$T" "no $F (run build_task_workloads.py first)"
+      fi
+    done
     ;;
   profile)
     cell t64  32K CONC=1 LIMIT=10 MAXTOK=64  K_NGRAM=5 K_NGRAM_GPU=5 K_DFLASH=7 \

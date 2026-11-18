@@ -92,7 +92,7 @@ if [ "$(uname -m)" != "aarch64" ] && [ "${LADDER_TEST_HOST:-0}" != "1" ]; then
   exit 1
 fi
 [ "${LADDER_CAPS:-}" = "90" ] || { echo "LADDER_CAPS=${LADDER_CAPS:-unset}; on DeltaAI it is 90. source deltaai_env.sh" >&2; exit 1; }
-for v in LADDER_ROOT LADDER_VENV LADDER_HF LADDER_DATA LADDER_CACHE LADDER_DOMDATA LADDER_RESULTS; do
+for v in LADDER_ROOT LADDER_VENV LADDER_HF LADDER_DATA LADDER_CACHE LADDER_DOMDATA LADDER_TASKDATA LADDER_RESULTS; do
   case "${!v:-}" in
     /projects/*) echo "$v=${!v} is under /projects, which a ghx4 job may not see. Use the copy under /work/nvme." >&2; exit 1 ;;
   esac
@@ -126,6 +126,8 @@ for b in 2K 8K 32K; do
 done
 mkdir -p "$LADDER_ROOT/logs" "$LADDER_ROOT/results"
 DOMDATA=${LADDER_DOMDATA:-$LADDER_ROOT/data/domains_balanced}
+TASKDATA=${LADDER_TASKDATA:-$LADDER_ROOT/data/tasks}
+T_NG=5,11; T_DF=7,15   # TASKSET in dtai2_bundle.sh
 
 echo "venv     $LADDER_VENV"
 echo "account  $ACCOUNT   partition $PART   user $USER"
@@ -340,6 +342,13 @@ cells_of () {
       local f=$DOMDATA/longbench_v2_$b.jsonl
       [ -s "$f" ] && n=$(( $(grep -c . "$f") - 2 ))   # the last two are the warm-up
       echo "domloop $b 1 $n dec $R_NG $R_DF"; echo "domacc $b 1 $n dec $C_NG $C_DF" ;;
+    task-*)
+      local T n f
+      for T in code summ fewshot mdqa; do
+        n=50; f=$TASKDATA/$T/longbench_v2_$b.jsonl
+        [ -s "$f" ] && { n=$(( $(grep -c . "$f") - 2 )); [ "$n" -gt 50 ] && n=50; }
+        echo "$T $b 1 $n dec $T_NG $T_DF"
+      done ;;
     profile)
       echo "t64 32K 1 10 t64 5 7"; echo "t512 32K 1 10 t512 5 7"
       echo "nsys2K 2K 1 3 nsys - 7"; echo "nsys32K 32K 1 3 nsys 5 7" ;;
@@ -370,8 +379,8 @@ DOM_MISSING=()
 printf "%-9s %-72s %8s %8s\n" bundle "cells (arms)" "estimate" walltime
 for bn in $BUNDLES; do
   case "$bn" in
-    c1-2K|c1-8K|c1-32K|conc-2K|conc-8K|conc-32K|dom-2K|dom-8K|dom-32K|profile) ;;
-    *) echo "unknown bundle '$bn'. One of c1-2K c1-8K c1-32K conc-2K conc-8K conc-32K dom-2K dom-8K dom-32K profile." >&2; exit 1 ;;
+    c1-2K|c1-8K|c1-32K|conc-2K|conc-8K|conc-32K|dom-2K|dom-8K|dom-32K|task-2K|task-8K|profile) ;;
+    *) echo "unknown bundle '$bn'. One of c1-2K c1-8K c1-32K conc-2K conc-8K conc-32K dom-2K dom-8K dom-32K task-2K task-8K profile." >&2; exit 1 ;;
   esac
   lines=$(cells_of "$bn") || exit 1
   m=0; mc=0; desc=""
@@ -398,6 +407,11 @@ for bn in $BUNDLES; do
   note=""
   case "$bn" in
     dom-*) [ -s "$DOMDATA/longbench_v2_${bn#*-}.jsonl" ] || { note="  NO DOMAIN FILE"; DOM_MISSING+=("$bn"); } ;;
+    task-*)
+      for T in code summ fewshot mdqa; do
+        [ -n "${CELLS:-}" ] && case " $CELLS " in *" $T "*) ;; *) continue ;; esac
+        [ -s "$TASKDATA/$T/longbench_v2_${bn#*-}.jsonl" ] || { note="  NO TASK FILE ($T)"; DOM_MISSING+=("$bn"); break; }
+      done ;;
   esac
   TOTAL=$((TOTAL + m))
   PLAN+=("$bn|$h")
@@ -418,6 +432,7 @@ if [ "${#DOM_MISSING[@]}" -gt 0 ]; then
   echo "  \"\$LADDER_VENV/bin/python3\" make_domains.py --src \"\$LADDER_DATA\" --dst \"\$LADDER_ROOT/data\" --n 50 --n32 25 --check"
   echo "  \"\$LADDER_VENV/bin/python3\" make_domains.py --src \"\$LADDER_DATA\" --dst \"\$LADDER_ROOT/data\" --n 50 --n32 25"
   echo "  \"\$LADDER_VENV/bin/python3\" merge_domains.py"
+  echo "Task files (task-* bundles) come from: \"\$LADDER_VENV/bin/python3\" build_task_workloads.py"
 fi
 case " $BUNDLES " in
   *" profile "*)
@@ -445,7 +460,7 @@ cd "$HERE"
 for p in "${PLAN[@]}"; do
   bn=${p%%|*}; h=${p#*|}
   case " ${DOM_MISSING[*]:-} " in
-    *" $bn "*) echo "NOT SUBMITTED: $bn (no domain file)"; continue ;;
+    *" $bn "*) echo "NOT SUBMITTED: $bn (no domain or task file)"; continue ;;
   esac
   JID=$(BUNDLE=$bn sbatch --parsable --partition="$PART" --account="$ACCOUNT" \
           --nodes=1 --gpus-per-node=1 --cpus-per-task=16 --mem=64g \

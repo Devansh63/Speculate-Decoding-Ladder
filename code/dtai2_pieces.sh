@@ -7,6 +7,7 @@
 #
 #   bash dtai2_pieces.sh SMOKE=<dir> SMOKE_LOG=<log>                 plan only
 #   bash dtai2_pieces.sh SMOKE=<dir> SMOKE_LOG=<log> GO=1            submit
+#   PIECESET=task bash dtai2_pieces.sh ...                            the task-type pieces (below)
 #   PIECES_FOR="c1-8K conc-2K" bash dtai2_pieces.sh ...              some bundles only
 #   ONLY_PIECES="c1-32K:prek0 c1-2K:coreD2" bash dtai2_pieces.sh ...  these pieces only
 #   SKIP_PIECES="c1-32K:prek0 c1-2K:coreD2" bash dtai2_pieces.sh ...  all but these
@@ -79,6 +80,25 @@ conc-32K|c2|c2|-|-
 conc-32K|c4|c4|-|-
 conc-32K|c8|c8|-|-
 '
+
+# Task-type pieces (added 18 Nov): one per task and length, 2K first so the
+# feeder, which moves the lowest job id first, runs them in this order.
+# Needs build_task_workloads.py's files; about 10 to 15 minutes each.
+PIECES_TASK='
+task-2K|code|code|-|-
+task-2K|summ|summ|-|-
+task-2K|fewshot|fewshot|-|-
+task-2K|mdqa|mdqa|-|-
+task-8K|code|code|-|-
+task-8K|summ|summ|-|-
+task-8K|fewshot|fewshot|-|-
+task-8K|mdqa|mdqa|-|-
+'
+case "${PIECESET:-dtai2}" in
+  dtai2) ;;
+  task) PIECES=$PIECES_TASK ;;
+  *) echo "PIECESET='${PIECESET}': dtai2 or task" >&2; exit 1 ;;
+esac
 
 KNOWN=" $(printf '%s\n' "$PIECES" | awk -F'|' 'NF { printf "%s:%s ", $1, $3 }')"
 for want in ${ONLY_PIECES:-} ${SKIP_PIECES:-}; do

@@ -154,7 +154,10 @@ import time
 
 from vllm import LLM, SamplingParams
 
-HARNESS_VERSION = "v5c-2026-11-16"
+# 18 Nov: v5c-2026-11-18 adds --ignore-eos (default off, so nothing else
+# changes): every request then runs to --max-tokens, which the task-type
+# workloads need so that every arm generates the same number of tokens.
+HARNESS_VERSION = "v5c-2026-11-18"
 
 
 def parse_args():
@@ -173,6 +176,8 @@ def parse_args():
     p.add_argument("--max-num-seqs", type=int, default=0, help="concurrency cap; 0 = engine default")
     p.add_argument("--outdir", required=True, help="Directory for results")
     p.add_argument("--prompt-style", choices=["qa", "context"], default="qa")
+    p.add_argument("--ignore-eos", action="store_true",
+                   help="generate --max-tokens tokens for every request, past any end of text")
     # Default None means "leave the engine alone", which is what every run so
     # far did. Only an explicit flag changes behaviour.
     p.add_argument("--prefix-caching", dest="prefix_caching", action="store_true", default=None,
@@ -656,7 +661,8 @@ def main():
                      f"resolved {got_async}. The row would be mislabelled.")
 
     sp = SamplingParams(temperature=args.temperature,
-                        max_tokens=args.max_tokens, seed=args.seed)
+                        max_tokens=args.max_tokens, seed=args.seed,
+                        **({"ignore_eos": True} if args.ignore_eos else {}))
 
     print(f"warmup ({args.warmup}): {warm_ids}", flush=True)
     if warmup_overlap:
@@ -798,6 +804,7 @@ def main():
         "warmup": {"mode": args.warmup, "ids": warm_ids, "measured_too": warmup_overlap},
         "per_request_engine_timing": engine_timing_seen,
         "prompt_style": args.prompt_style,
+        "ignore_eos": bool(args.ignore_eos),
         "dataset": args.dataset,
         "model": args.model,
         "draft": args.draft,
