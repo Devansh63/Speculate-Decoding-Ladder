@@ -70,6 +70,39 @@ directory overwrites the first.
 
 ---
 
+## 18 Nov 2026: task-type pieces, 30-minute limits, and a cost model
+
+**What ran.** The eight task-type pieces (`PIECESET=task`, jobs 3627816 to
+3627823) were submitted at 17:31 and sat behind about 2,700 jobs. Cutting
+their limits from 1 hour to 30 minutes (`scontrol update JobId=<id>
+TimeLimit=00:30:00`; users can lower a waiting job's limit, not raise it) let
+the backfill scheduler fit two of them into gaps in ghx4-interactive: 2K code
+completion (3627816, 8 min 9 s) and 2K summarization (3627817, 10 min 13 s).
+Measured 1-hour pieces had taken 7 to 15 minutes, so 30 minutes leaves about
+twice the margin. The other six, and Sahil's copies (3628697 to 3628700), are
+still waiting; the feeder in tmux session `feeder` moves them one at a time.
+Pushed as commit 3906586 with `push_dtai2.sh`.
+
+**What they show.** DFlash beats n-gram by 67 to 70% at 2K on code completion
+(2.79x vs 1.68x), summarization (1.91x vs 1.12x) and QA alike. The diverging
+pair (n-gram k=11, DFlash k=15) gives identical outputs on all 50 prompts of
+both tasks, as on QA.
+
+**Cost model.** `code/cost_model.py` (new) backs a per-step cost R out of
+every batch-1 QA arm, fits one constant per drafter, and tests it on the task
+and output-length arms it never saw: R = 1.25 (DFlash), 1.02 (n-gram), flat
+with length; held-out error 1.2% mean, 3.6% worst. Write-up in
+`notes/2026-11-18-cost-model.md`; claim updates (C7, C9, C12, C13 on the
+GH200) at the end of `paper/claims.md`. `notes/2026-11-18-gh200-results.md`
+regenerated with the task section.
+
+**Checkpoint 2** was built from these numbers. Its 8K task numbers are a
+projection (2K results scaled by the QA length effect), labelled as such.
+
+**Next.** Push the remaining task pieces as they finish and rerun both
+scripts. Add a code-editing workload (InstructCoder), the copy-heavy case
+most likely to flip the winner (owner: Devansh). Bootstrap intervals.
+
 ## 16 Nov 2026 (evening): first GH200 jobs, a stuck queue, and dtai2 in 1 h pieces
 
 Devansh, on DeltaAI with Sahil's venv (`/work/nvme/bikd/ssashi/Speculative_Ladder/vllm033_gh200`),
