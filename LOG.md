@@ -70,6 +70,33 @@ directory overwrites the first.
 
 ---
 
+## 25 Nov 2026: router data job set (dtai3) built, not submitted
+
+**Why.** The 24 Nov reports found that every prompt measured so far was sent
+as raw text without the chat template (Qwen3-8B never ends its answer: 0 of
+525 no-speculation outputs hold an end-of-text token), that 16K was never
+measured and tasks never above 8K, and that per-prompt routing is not
+learnable from the current prompts because no task varies its instruction.
+This job set collects the data a router needs: chat format, 2K to 32K, load,
+and request types where copying varies.
+
+**What was added** (nothing existing edited): harness v5d (`--prompt-format
+chat`, `--thinking`, multi-turn rows), `build_router_workloads.py`,
+`gen_router_ai.py` (DeepSeek-written prompts; key from the environment only),
+`router_cell.sh`, `dtai3_job.sh`, `submit_dtai3.sh` (tiers S, 0 to 3; about
+28 GPU-hours by a rough model), `dtai3_feeder.sh`, `push_dtai3.sh`,
+`test_dtai3.sh`. Full design, costs and commands:
+`notes/2026-11-25-router-data-jobs.md`.
+
+**Checked offline.** The builder ran on the real sources; the first rows of
+the QA and 2K/8K task files reproduce the raw runs' prompts exactly.
+`test_dtai3.sh` passes 53 of 53 with the real tokenizer; `test_dtai2.sh` still
+passes 116 of 116. The DeepSeek step was tested against a local mock of the
+API only.
+
+**Next.** Build the workloads on DeltaAI, run the smoke piece (`TIERS=S`), read
+its log against the note's checklist, then tier 0.
+
 ## 18 Nov 2026: task-type pieces, 30-minute limits, and a cost model
 
 **What ran.** The eight task-type pieces (`PIECESET=task`, jobs 3627816 to
