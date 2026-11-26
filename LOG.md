@@ -83,8 +83,8 @@ and request types where copying varies.
 **What was added** (nothing existing edited): harness v5d (`--prompt-format
 chat`, `--thinking`, multi-turn rows), `build_router_workloads.py`,
 `gen_router_ai.py` (DeepSeek-written prompts; key from the environment only),
-`router_cell.sh`, `dtai3_job.sh`, `submit_dtai3.sh` (tiers S, 0 to 3; about
-28 GPU-hours by a rough model), `dtai3_feeder.sh`, `push_dtai3.sh`,
+`router_cell.sh`, `dtai3_job.sh`, `submit_dtai3.sh` (tiers S, 0 to 3, 93
+pieces; about 34 GPU-hours by a rough model), `dtai3_feeder.sh`, `push_dtai3.sh`,
 `test_dtai3.sh`. Full design, costs and commands:
 `notes/2026-11-25-router-data-jobs.md`.
 
@@ -93,6 +93,16 @@ the QA and 2K/8K task files reproduce the raw runs' prompts exactly.
 `test_dtai3.sh` passes 53 of 53 with the real tokenizer; `test_dtai2.sh` still
 passes 116 of 116. The DeepSeek step was tested against a local mock of the
 API only.
+
+**Second check, same day (commit after 7e816c1).** Six problems found and
+fixed before any job ran: duplicate ids in `mix`; the length cut dropping one
+of the item's own passages in 13 of 27 multi-doc QA 32K rows and in 27 of 104
+padding-test rows; 4 repositories shared between 32K `code` and 32K `qa`;
+acceptance labels for k 5 and 7 approximated from the k 11 and 15 arms, the
+ones that diverge from greedy (the `a` cell now measures all four arms); the
+DeepSeek key able to reach jobs through `--export=ALL` (now `env -u`), and the
+estimate run with the system python; four pieces over 1 hour (now split).
+A rebuild audits clean; details in section 9 of the note.
 
 **Next.** Build the workloads on DeltaAI, run the smoke piece (`TIERS=S`), read
 its log against the note's checklist, then tier 0.

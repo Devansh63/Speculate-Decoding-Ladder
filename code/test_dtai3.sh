@@ -221,7 +221,7 @@ chmod +x "$W/cell_stub.sh"
 job () { (cd "$CODE" && env LADDER_CELL="$W/cell_stub.sh" CELLLOG="$W/cells.log" "$@" bash dtai3_job.sh) > "$W/job.log" 2>&1; }
 : > "$W/cells.log"; job PIECE=x1 WL=qa B=2K CELLS="t a c4 c32"
 check "t: c1, 50 prompts, ngram 5 11, dflash 7 15" "grep -q '^gh200r_qa_2K_t_px1|2K|1|50||||||5 11|7 15|qa$' $W/cells.log"
-check "a: no off, detailed, ngram 11, dflash 15" "grep -q '^gh200r_qa_2K_a_px1|2K|1|50|1|detailed||||11|15|qa$' $W/cells.log"
+check "a: no off, detailed, all four arms (ngram 5 11, dflash 7 15)" "grep -q '^gh200r_qa_2K_a_px1|2K|1|50|1|detailed||||5 11|7 15|qa$' $W/cells.log"
 check "c4 and c32: 128 prompts, ngram 5, dflash 4 7 15" "grep -q '^gh200r_qa_2K_c4_px1|2K|4|128||||||5|4 7 15|qa$' $W/cells.log && grep -q '^gh200r_qa_2K_c32_px1|2K|32|128|' $W/cells.log"
 : > "$W/cells.log"; job PIECE=x2 WL=qa B=32K CELLS="t c8"
 check "32K: 25 prompts at batch 1, 48 under load" "grep -q '^gh200r_qa_32K_t_px2|32K|1|25|' $W/cells.log && grep -q '^gh200r_qa_32K_c8_px2|32K|8|48|' $W/cells.log"
@@ -257,11 +257,11 @@ echo "T7 end to end through the real router_cell.sh and harness v5d"
 if [ "$HAVE_TOK" = "1" ]; then
   (cd "$CODE" && PIECE=e2e WL=qa B=2K CELLS="t a" LIM1=3 bash dtai3_job.sh) > "$W/e2e.log" 2>&1
   check "piece done, both cells exit 0" "grep -q '^done' $W/e2e.log && grep -q 'cell t exit=0' $W/e2e.log && grep -q 'cell a exit=0' $W/e2e.log"
-  check "rows: 5 timing, 2 acceptance, all v5d chat" "python3 -c \"
+  check "rows: 5 timing, 4 acceptance (one per arm), all v5d chat" "python3 -c \"
 import json
 t=[json.loads(l) for l in open('$W/root/results/gh200r_qa_2K_t_pe2e/results.jsonl')]
 a=[json.loads(l) for l in open('$W/root/results/gh200r_qa_2K_a_pe2e/results.jsonl')]
-exit(not(len(t)==5 and len(a)==2 and all(r['harness'].startswith('v5d') and r['prompt_format']=='chat' for r in t+a)))\""
+exit(not(len(t)==5 and len(a)==4 and all(r['harness'].startswith('v5d') and r['prompt_format']=='chat' for r in t+a)))\""
   (cd "$CODE" && PIECE=e2e2 WL=chat B=2K CELLS="t" LIM1=3 bash dtai3_job.sh) > "$W/e2e2.log" 2>&1
   check "multi-turn workload end to end" "grep -q '^done' $W/e2e2.log"
 else

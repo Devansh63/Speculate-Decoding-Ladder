@@ -52,12 +52,20 @@ runs used 33,792, which a 32K prompt plus 1,024 tokens would exceed).
 | Cell | Concurrency | Arms | What it gives the router |
 |---|---|---|---|
 | `t` | 1 | off; n-gram k 5, 11; DFlash k 7, 15 | per-prompt time for each drafter and k |
-| `a` | 1 | n-gram k 11; DFlash k 15, per-request acceptance | the labels: accepted tokens at every step, per prompt. k 5 and 7 are read from the same steps (n-gram's k=5 proposal is the first 5 tokens of its k=11 one; for DFlash it is an approximation) |
+| `a` | 1 | n-gram k 5, 11; DFlash k 7, 15, per-request acceptance | the labels: accepted tokens at every step, per prompt, measured for every k the router chooses between |
 | `c<N>` | N | off; n-gram k 5; DFlash k 4, 7, 15 | where load moves the switch point and the best k |
 | `tT`, `aT` | 1 | as `t`, `a`, thinking on, 2,048 tokens, 25 prompts | Qwen3's reasoning mode, a different output distribution |
 
 The `a` cell has no off arm: vLLM 0.33.0 refuses per-request acceptance
 without a drafter, which is why every dtai2 `acc` cell exited 1.
+
+The `a` cell measures all four arms rather than reading k 5 and 7 off the
+k 11 and 15 steps. Reading them off is exact only for n-gram; for DFlash the
+k 7 block is not the first 7 tokens of the k 15 block. And k 11 and 15 are
+the two arms whose output left greedy in Devansh's environment (dtai2, 24
+Nov), so labels taken only from them would carry that divergence. With
+the pieces this forces to split, it raises the total from about 28 to about
+34 GPU-hours.
 
 **Compare arms per generated token.** With natural stopping, an arm that
 changes the text can also change its length; use `decode_s / gen_tokens` per
@@ -157,23 +165,27 @@ pieces replace the guesses.
 
 | Tier | Pieces | Est. GPU time | What it answers |
 |---|---|---|---|
-| S | 1 | 12 min | Does chat mode work on DeltaAI (template, stop ids, per-request acceptance)? |
-| 0 | 40 | about 11.5 h | Does the crossover survive the chat format? Where is the switch point at 16K? Do tasks flip the winner at 16K or 32K? How does load move it? |
-| 1 | 22 | about 7 h | Does the instruction change the winner on one document? Code edits, real chats, agent traces; the padding test |
-| 2 | 14 | about 5 h | AI-written prompts across copy levels; LLM padding; synthetic against real prompts |
-| 3 | 12 | about 4 h | Tasks under load, mixed-length batches, thinking on |
+| S | 1 | 15 min | Does chat mode work on DeltaAI (template, stop ids, per-request acceptance)? |
+| 0 | 42 | about 13.7 h | Does the crossover survive the chat format? Where is the switch point at 16K? Do tasks flip the winner at 16K or 32K? How does load move it? |
+| 1 | 23 | about 9.1 h | Does the instruction change the winner on one document? Code edits, real chats, agent traces; the padding test |
+| 2 | 14 | about 6 h | AI-written prompts across copy levels; LLM padding; synthetic against real prompts |
+| 3 | 13 | about 4.5 h | Tasks under load, mixed-length batches, thinking on |
 
 Every piece fits a 30-minute or 1-hour walltime (short limits start sooner on
-ghx4; LOG, 18 Nov). Total about 28 GPU-hours.
+ghx4; LOG, 18 Nov): the heaviest pieces are split into a `t` piece and an
+`a` piece. Total about 34 GPU-hours.
 
-**Suggested split:** Devansh runs S and 0; Sahil runs 1, pointing at the same
-workload files (`LADDER_ROUTER=/work/nvme/bikd/dagraw2/Speculative_Ladder/data/router`)
-so both trees measure identical inputs; whoever has hours left runs 2 and 3.
+**Suggested split:** Devansh runs S and 0; Sahil runs 1 on identical inputs:
+either `LADDER_ROUTER=/work/nvme/bikd/dagraw2/Speculative_Ladder/data/router`
+if he can read that directory, or his own build (the build is deterministic:
+every random choice is seeded from the item id). Either way, compare the
+`sha256` of each file in the two `manifest.json` files before running.
+Whoever has hours left runs 2 and 3.
 
 ## 8. How to run it
 
-On the DeltaAI login node, in tmux (the build downloads about 1.5 GB and
-takes 10 to 20 minutes):
+On the DeltaAI login node, in tmux (the build downloads about 1.2 GB with
+the default two WildChat and two SWE-agent shards, and takes 5 to 20 minutes):
 
 ```bash
 ssh dagraw2@dtai-login.delta.ncsa.illinois.edu
@@ -184,11 +196,12 @@ PROJ=bikd ACCOUNT=bikd-dtai-gh source deltaai_env.sh
 BPY=$( "$LADDER_VENV/bin/python3" -c "import transformers, pyarrow" 2>/dev/null && echo "$LADDER_VENV/bin/python3" || echo "$LADDER_ROOT/buildenv/bin/python3" )
 "$BPY" build_router_workloads.py --check
 "$BPY" build_router_workloads.py
-QWEN_TOK=$LADDER_HF/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218 bash test_dtai3.sh
+PATH="$(dirname "$BPY"):$PATH" QWEN_TOK=$LADDER_HF/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218 bash test_dtai3.sh
 ```
 
 (The build venv exists so the measurement venv is never changed by a
-`pip install`.)
+`pip install`. The `PATH` prefix gives the test the python that has
+`transformers`.)
 
 Then the smoke piece, and read its log before anything else:
 
@@ -199,7 +212,7 @@ bash submit_dtai3.sh TIERS=S GO=1
 Smoke checklist (log `$LADDER_ROOT/logs/dtai3-smoke-<job>.out`):
 - each arm prints `chat template sha256 ...` and `stop ids [151645, 151643]`;
 - no `INCOMPLETE`; `results.jsonl` in `gh200r_qa_2K_t_psmoke` has 5 rows and in
-  `gh200r_qa_2K_a_psmoke` 2;
+  `gh200r_qa_2K_a_psmoke` 4 (one per arm);
 - `finished_stop` close to 4 in each row (most answers end on their own) and
   `gen_tokens` well under 4 x 1024;
 - in the `a` rows, `per_request_spec_seen` is 4.
@@ -213,7 +226,9 @@ tmux new -s feeder3 "bash dtai3_feeder.sh"
 
 The AI step, on the login node (or a laptop, copying `data/router/_ai` there
 and back if the login node cannot reach the API). The key goes in the shell
-only; `read -rs` keeps it out of the history:
+only; `read -rs` keeps it out of the history, and `submit_dtai3.sh` calls
+`sbatch` with the key removed from its environment, so it never reaches a
+GPU job:
 
 ```bash
 read -rs DEEPSEEK_API_KEY && export DEEPSEEK_API_KEY
@@ -232,13 +247,30 @@ bash push_dtai3.sh "results: dtai3 tier 0 pieces <job ids>"
 ## 9. How the files were checked (25 Nov)
 
 - `build_router_workloads.py` run on the real sources (one WildChat shard and
-  one SWE-agent shard; the defaults read four and three): every file in
+  one SWE-agent shard; the defaults read two of each): every file in
   section 4 built with the counts shown. The first rows of `qa` at 2K, 8K, 32K
   and of the 2K and 8K task files are exactly the raw runs' measured and
   warm-up prompts (ids checked against `results/gh200`), so every chat cell
   has a raw twin already measured.
 - `gen_router_ai.py` against a local mock of the API: 404 requests answered,
   a rerun asked nothing, and the AI workloads assembled.
+- A second pass the same day found six problems, all fixed before any job
+  ran: (1) `mix` held the same document twice under one id when it was in
+  both QA buckets (ids now start `2K:` or `32K:`); (2) the cut to length
+  dropped one of the item's own passages in 13 of 27 `mdqa` 32K rows, 17 of
+  52 `eq_mdqa_realpad` and 10 of 52 `eq_mdqa_llmpad`, making those questions
+  unanswerable (the builder now reshuffles until every own passage is kept);
+  (3) 4 of the 32K `code` repositories were also 32K `qa` documents (now
+  excluded); (4) the `a` cell's k 5 and 7 labels were approximations from
+  the diverging arms (now measured, section 3); (5) the submitter's estimate
+  ran the system python, and `sbatch --export=ALL` would have copied an
+  exported `DEEPSEEK_API_KEY` into every job's environment (now the venv's
+  python, and `env -u DEEPSEEK_API_KEY sbatch`); (6) four pieces needed a
+  2-hour walltime once the `a` cell had four arms (now split). After the
+  fixes, a rebuild and audit: no duplicate ids, every own passage kept, no
+  document shared between the 32K `qa`, `code` and `summ` files, every
+  named function present in its code edit, the longest templated prompt
+  33,263 tokens (under 40,960 minus 2,048).
 - `test_dtai3.sh`: 53 of 53 with the real tokenizer (36 pass and 3 skip
   without it). The chat path was checked with Qwen3-8B's real template:
   `<|im_start|>user ... <|im_start|>assistant` with the empty think block when
@@ -257,3 +289,7 @@ bash push_dtai3.sh "results: dtai3 tier 0 pieces <job ids>"
   runs. They are filtered (English, not flagged toxic, not redacted) but not
   read by hand; dataset licences were not checked beyond their cards.
 - 25 prompts at 32K, as before.
+- Thinking on with greedy decoding can loop until the 2,048-token cap (Qwen
+  recommends sampling for thinking mode). The `tT` and `aT` cells are timing
+  and acceptance measurements, not answer quality; check `finished_stop`
+  before using them.

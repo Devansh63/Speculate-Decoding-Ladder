@@ -11,10 +11,12 @@
 #   CELLS   cells to run, in order, from:
 #             t       batch 1, timing: off, n-gram k 5 11, DFlash k 7 15
 #             a       batch 1, per-request acceptance (the router's labels):
-#                     n-gram k 11 and DFlash k 15, no off arm (vLLM refuses
-#                     per-request acceptance without a drafter). Acceptance
-#                     at k 5 and 7 is read from the same steps: n-gram's k=5
-#                     proposal is the first 5 tokens of its k=11 one
+#                     the same four speculative arms as t, no off arm (vLLM
+#                     refuses per-request acceptance without a drafter). All
+#                     four, not k 11 and 15 alone: DFlash accepts differently at
+#                     different k (dtai2 note), a k=5 run's steps are not a k=11
+#                     run's steps cut short, and on the GH200 n-gram k=11 and
+#                     DFlash k=15 are the arms whose greedy output changed
 #             tT aT   the same with thinking on, 2048 tokens, 25 prompts
 #             c<N>    concurrency N: off, n-gram k 5, DFlash k 4 7 15
 #   LIM1    prompts in a batch-1 cell (default 50, 25 at 32K, never more
@@ -101,9 +103,9 @@ cell () {  # $1 cell name, then KEY=VALUE pairs for router_cell.sh
 for c in $CELLS; do
   case "$c" in
     t)  cell t  CONC=1 LIMIT="$LIM1" "K_NGRAM_GPU=5 11" "K_DFLASH=7 15" ;;
-    a)  cell a  CONC=1 LIMIT="$LIM1" SKIP_OFF=1 PERREQ=detailed K_NGRAM_GPU=11 K_DFLASH=15 ;;
+    a)  cell a  CONC=1 LIMIT="$LIM1" SKIP_OFF=1 PERREQ=detailed "K_NGRAM_GPU=5 11" "K_DFLASH=7 15" ;;
     tT) cell tT CONC=1 LIMIT="$(cap 25)" THINK=on MAXTOK=2048 "K_NGRAM_GPU=5 11" "K_DFLASH=7 15" ;;
-    aT) cell aT CONC=1 LIMIT="$(cap 25)" THINK=on MAXTOK=2048 SKIP_OFF=1 PERREQ=detailed K_NGRAM_GPU=11 K_DFLASH=15 ;;
+    aT) cell aT CONC=1 LIMIT="$(cap 25)" THINK=on MAXTOK=2048 SKIP_OFF=1 PERREQ=detailed "K_NGRAM_GPU=5 11" "K_DFLASH=7 15" ;;
     c[0-9]*)
       n=${c#c}
       case "$n" in *[!0-9]*|"") echo "unknown cell $c"; STATUS+=("cell $c unknown"); FAILED=$((FAILED + 1)); continue ;; esac

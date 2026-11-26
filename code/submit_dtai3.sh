@@ -67,8 +67,10 @@ S|smoke|qa|2K|t a|4
 0|code16a|code|16K|a|
 0|code32t|code|32K|t|
 0|code32a|code|32K|a|
-0|summ2|summ|2K|t a|
-0|summ8|summ|8K|t a|
+0|summ2t|summ|2K|t|
+0|summ2a|summ|2K|a|
+0|summ8t|summ|8K|t|
+0|summ8a|summ|8K|a|
 0|summ16t|summ|16K|t|
 0|summ16a|summ|16K|a|
 0|summ32t|summ|32K|t|
@@ -93,7 +95,8 @@ S|smoke|qa|2K|t a|4
 1|rq32a|ragquote|32K|a|46
 1|ce0|codeedit|nat|t a|
 1|ce2|codeedit|2K|t a|
-1|ce8|codeedit|8K|t a|
+1|ce8t|codeedit|8K|t|
+1|ce8a|codeedit|8K|a|
 1|ce16t|codeedit|16K|t|
 1|ce16a|codeedit|16K|a|
 1|chat2|chat|2K|t a|
@@ -130,7 +133,8 @@ S|smoke|qa|2K|t a|4
 3|fewshot8L|fewshot|8K|c16|
 3|mdqa8L|mdqa|8K|c16|
 3|mixL|mix|mix|c8 c16|
-3|qa2T|qa|2K|tT aT|
+3|qa2Tt|qa|2K|tT|
+3|qa2Ta|qa|2K|aT|
 3|qa8Tt|qa|8K|tT|
 3|qa8Ta|qa|8K|aT|
 '
@@ -160,7 +164,7 @@ mkdir -p "$LADDER_ROOT/logs" "$LADDER_ROOT/results"
 # Expected output lengths in chat format are guesses per workload, to be
 # replaced by the smoke piece's and tier 0's measured ones.
 est () {  # $1 workload $2 bucket $3 cells $4 lim1 $5 rows -> minutes
-  python3 - "$@" <<'EOF'
+  "$LADDER_VENV/bin/python3" - "$@" <<'EOF'
 import sys
 wl, b, cells, lim1, rows = sys.argv[1], sys.argv[2], sys.argv[3].split(), sys.argv[4], int(sys.argv[5])
 P = {"nat": 0.05, "2K": 0.15, "8K": 0.6, "16K": 1.4, "32K": 3.5, "mix": 1.8}[b]
@@ -183,7 +187,7 @@ for c in cells:
     elif c in ("a", "aT"):
         o = 1800 if c == "aT" else out
         n = min(25, rows - 2) if c == "aT" else n1
-        m += 2 * load + n * (P + o * tok) * (2 / 1.6) / 60
+        m += 4 * load + n * (P + o * tok) * (4 / 1.6) / 60
     elif c.startswith("c"):
         k = int(c[1:])
         arm = nl * P + nl * out * tok / (0.8 * k)
@@ -219,8 +223,10 @@ while IFS='|' read -r tier piece wl b cells lim1; do
   case "$status" in HELD*) continue ;; esac
   total=$((total + m)); n=$((n + 1))
   if [ "$GO" = "1" ]; then
+    # env -u: a DeepSeek key exported in this shell for gen_router_ai.py must
+    # not travel into the job's environment (--export=ALL would carry it).
     jid=$(cd "$HERE" && PIECE="$piece" WL="$wl" B="$b" CELLS="$cells" LIM1="$lim1" \
-          sbatch --parsable --partition="$PART" --account="$ACCOUNT" \
+          env -u DEEPSEEK_API_KEY sbatch --parsable --partition="$PART" --account="$ACCOUNT" \
             --nodes=1 --gpus-per-node=1 --cpus-per-task=16 --mem=64g \
             --time="$wall" --job-name="dtai3-${wl}_${b}-p$piece" \
             --output="$LADDER_ROOT/logs/dtai3-$piece-%j.out" --export=ALL dtai3_job.sh)

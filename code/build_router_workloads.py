@@ -375,23 +375,23 @@ def distractors(S, tok, base_items, L, pool, n_rows, tag, own_fn=None):
                 break
             extra.append(p)
             have += tok.n(p) + 6
-        allp = own + extra
-        rng.shuffle(allp)
-        # cut at the end only through distractors: move own passages off the tail
-        tail_budget = 0
-        ctx_parts = []
-        for i, p in enumerate(allp):
-            ctx_parts.append(f"Passage {i + 1}:\n{p}")
-        ctx = "\n".join(ctx_parts)
-        ids = tok.enc(ctx)
-        if len(ids) < need:
-            continue
-        kept = tok.dec(ids[:need])
-        lost = [p for p in own if p[:80] not in kept]
-        if lost:  # an own passage fell past the cut: put it first and rebuild
-            allp = lost + [p for p in allp if p not in lost]
+        # The cut at `need` tokens falls in the last passage or two. Reshuffle
+        # until every one of the item's own passages lies wholly before it, so
+        # the question stays answerable; give up on the item after 50 tries.
+        kept = None
+        for _ in range(50):
+            allp = own + extra
+            rng.shuffle(allp)
             ctx = "\n".join(f"Passage {i + 1}:\n{p}" for i, p in enumerate(allp))
-            kept = tok.dec(tok.enc(ctx)[:need])
+            ids = tok.enc(ctx)
+            if len(ids) < need:
+                break
+            cand_kept = tok.dec(ids[:need])
+            if all(p in cand_kept for p in own):
+                kept = cand_kept
+                break
+        if kept is None:
+            continue
         p = TPL_HOTPOT.format(context=kept, input=d["input"])
         rows.append(row(_id=f"{tag}:{d['_id']}", workload=None, task="mdqa", domain="mdqa", bucket=None,
                         construction="real_distractors", source="THUDM/LongBench:hotpotqa",
@@ -457,7 +457,7 @@ def build_tasks(S, tok, buckets, built):
         out[("fewshot", b)] = fs
         if b == "32K":
             out[("mdqa", b)] = distractors(S, tok, S.v1("hotpotqa"), L, pool_h, n, f"mdqa{b}")
-            out[("code", b)] = repo_prefix(S, tok, L, n, set())
+            out[("code", b)] = repo_prefix(S, tok, L, n, qa_ids(built, b))
             out[("summ", b)] = long_docs(S, tok, L, n, qa_ids(built, b))
     for (t, b), rows in out.items():
         for r in rows:
@@ -752,9 +752,12 @@ def build_eqtest(S, tok, built):
 def build_mix(built):
     a, b = built[("qa", "2K")], built[("qa", "32K")]
     rows = []
+    # The same LongBench v2 document can be in both buckets, so ids get the
+    # bucket in front: per-request records are joined on _id.
+    tag = lambda r, k: dict(r, _id=f"{k}:{r['_id']}", base_id=r["_id"], workload="mix", bucket="mix", length=k)
     for x, y in zip(a[:32], b[:32]):
-        rows += [dict(x, workload="mix", bucket="mix"), dict(y, workload="mix", bucket="mix")]
-    rows += [dict(a[32], workload="mix", bucket="mix"), dict(b[32], workload="mix", bucket="mix")]
+        rows += [tag(x, "2K"), tag(y, "32K")]
+    rows += [tag(a[32], "2K"), tag(b[32], "32K")]
     return {("mix", "mix"): rows}
 
 
@@ -921,8 +924,8 @@ def main():
     ap.add_argument("--cache", help="Hugging Face dataset cache (default $LADDER_ROOT/hf/datasets)")
     ap.add_argument("--only", default="qa tasks ragquote codeedit chat agent eqtest twins mix ai",
                     help="groups: " + " ".join(GROUPS))
-    ap.add_argument("--wildchat-shards", type=int, default=4)
-    ap.add_argument("--swe-shards", type=int, default=3)
+    ap.add_argument("--wildchat-shards", type=int, default=2)
+    ap.add_argument("--swe-shards", type=int, default=2)
     ap.add_argument("--check", action="store_true", help="count and print; write no workload files")
     ap.add_argument("--force", action="store_true", help="overwrite existing workload files")
     args = ap.parse_args()
