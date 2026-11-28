@@ -296,6 +296,16 @@ EOF
 }
 
 PLAN=$(plan) || { echo "the planner failed (above); nothing submitted" >&2; exit 1; }
+# A rerun must not queue a piece twice (28 Nov: sbatch waited on a busy
+# controller mid-tier; an interrupted run is simply run again). Skip a piece
+# whose job name is already queued or running, or whose every cell already
+# has a results file.
+QUEUED=$(squeue -u "${USER:-$(id -un)}" -h -o "%j" 2>/dev/null | sort -u || true)
+done_already () {  # $1 wl $2 b $3 cells $4 piece
+  local c
+  for c in $3; do [ -s "$LADDER_ROOT/results/gh200r_$1_$2_${c}_p$4/results.jsonl" ] || return 1; done
+  return 0
+}
 printf '%-4s %-13s %-22s %-5s %-16s %5s %6s %6s  %s\n' tier piece workload bucket cells rows worst expect status
 total=0; nwall=0; n=0; nsub=0; seen=" "
 SUBMITTED=()
@@ -307,6 +317,15 @@ while IFS='|' read -r kind tier piece wl b cells lim1 rows worst exp wall; do
   fi
   case "$seen" in *" $piece "*) echo "planner made the tag $piece twice; stopping" >&2; exit 1 ;; esac
   seen="$seen$piece "
+  name="dtai3-${wl}_${b}-p$piece"
+  if grep -qxF "$name" <<< "$QUEUED"; then
+    printf '%-4s %-13s %-22s %-5s %-16s %5s %6s %6s  %s\n' "$tier" "$piece" "$wl" "$b" "$cells" "$rows" "$worst" "$exp" "already queued, skipped"
+    continue
+  fi
+  if done_already "$wl" "$b" "$cells" "$piece"; then
+    printf '%-4s %-13s %-22s %-5s %-16s %5s %6s %6s  %s\n' "$tier" "$piece" "$wl" "$b" "$cells" "$rows" "$worst" "$exp" "results exist, skipped"
+    continue
+  fi
   printf '%-4s %-13s %-22s %-5s %-16s %5s %6s %6s  %s\n' "$tier" "$piece" "$wl" "$b" "$cells" "$rows" "$worst" "$exp" "ok, walltime $wall"
   total=$(awk -v t="$total" -v e="$exp" 'BEGIN { print t + e }'); n=$((n + 1))
   [ "$wall" = "01:00:00" ] && nwall=$((nwall + 1))
@@ -316,13 +335,14 @@ while IFS='|' read -r kind tier piece wl b cells lim1 rows worst exp wall; do
     if ! jid=$(cd "$HERE" && PIECE="$piece" WL="$wl" B="$b" CELLS="$cells" LIM1="$lim1" \
           env -u DEEPSEEK_API_KEY sbatch --parsable --partition="$PART" --account="$ACCOUNT" \
             --nodes=1 --gpus-per-node=1 --cpus-per-task=16 --mem=64g \
-            --time="$wall" --job-name="dtai3-${wl}_${b}-p$piece" \
+            --time="$wall" --job-name="$name" \
             --output="$LADDER_ROOT/logs/dtai3-$piece-%j.out" --export=ALL dtai3_job.sh); then
       echo "sbatch refused $piece; stopping. Submitted before it:" >&2
       for s in "${SUBMITTED[@]}"; do echo "  $s" >&2; done
       exit 1
     fi
     SUBMITTED+=("$jid $piece"); nsub=$((nsub + 1))
+    sleep "${PACE:-0.5}"   # do not flood a busy controller
   fi
 done <<< "$PLAN"
 echo

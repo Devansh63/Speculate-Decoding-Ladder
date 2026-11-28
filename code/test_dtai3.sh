@@ -115,6 +115,7 @@ echo "NVIDIA GH200 480GB, 97871 MiB, 570.00"
 EOF
 printf '#!/bin/bash\necho "PIECE=$PIECE WL=$WL B=$B CELLS=$CELLS LIM1=${LIM1:-} $*" >> "%s/sbatch.log"; echo $((RANDOM + 500000))\n' "$W" > "$W/bin/sbatch"
 printf '#!/bin/bash\nexit 0\n' > "$W/bin/module"
+printf '#!/bin/bash\ncat "%s/queued.txt" 2>/dev/null\n' "$W" > "$W/bin/squeue"
 chmod +x "$W"/bin/*
 
 # Small workload files in the builder's layout.
@@ -276,12 +277,17 @@ echo "T6 submit_dtai3.sh"
 check "plan lists the smoke piece with all three batch-1 cells" "grep -q '^S    smoke .* t a l ' $W/plan.log"
 check "pieces with no file are held, not submitted" "grep -q 'HELD: no .*/summ/2K.jsonl' $W/plan.log"
 check "plan only without GO" "grep -q 'plan only' $W/plan.log && [ ! -f $W/sbatch.log ]"
-(cd "$CODE" && bash submit_dtai3.sh TIERS=0 ONLY="qa2 qa32La" GO=1) > "$W/go.log" 2>&1
+(cd "$CODE" && PACE=0 bash submit_dtai3.sh TIERS=0 ONLY="qa2 qa32La" GO=1) > "$W/go.log" 2>&1
 check "GO=1 submits exactly the pieces planned for the tags asked for" "[ \$(grep -c . $W/sbatch.log) = \$(grep -c 'ok, walltime' $W/go.log) ] && [ \$(grep -c . $W/sbatch.log) -ge 2 ]"
 check "a piece too long for 30 minutes is split; its parts cover the cell's arms" "grep -q 'qa2s1 .* t1 ' $W/go.log && grep -q 'qa2s2 .* t2 ' $W/go.log && grep -q ' c2n ' $W/go.log && grep -q ' c2d ' $W/go.log"
 check "no piece asks for more than 30 minutes" "! grep -q '01:00:00' $W/go.log && ! grep -q -- '--time=01:00:00' $W/sbatch.log"
 check "sbatch gets the piece settings and a dtai3 job name" "grep -q 'PIECE=qa2s1 WL=qa B=2K CELLS=t1 LIM1= ' $W/sbatch.log && grep -q 'job-name=dtai3-qa_2K-pqa2s1' $W/sbatch.log"
 (cd "$CODE" && bash submit_dtai3.sh TIERS=0 ONLY="qa2 qa32La" SKIP="qa2") > "$W/skip.log" 2>&1
+echo "dtai3-qa_2K-pqa2s2" > "$W/queued.txt"
+mkdir -p "$W/root/results/gh200r_qa_2K_l_pqa2s4" && echo '{}' > "$W/root/results/gh200r_qa_2K_l_pqa2s4/results.jsonl"
+: > "$W/sbatch.log"; (cd "$CODE" && PACE=0 bash submit_dtai3.sh TIERS=0 ONLY="qa2" GO=1) > "$W/rerun.log" 2>&1
+check "a rerun skips pieces already queued or with results, submits the rest" "grep -q 'qa2s2 .*already queued, skipped' $W/rerun.log && grep -q 'qa2s4 .*results exist, skipped' $W/rerun.log && [ \$(grep -c . $W/sbatch.log) = 2 ] && grep -q 'PIECE=qa2s1 ' $W/sbatch.log && grep -q 'PIECE=qa2s3 ' $W/sbatch.log"
+rm -f "$W/queued.txt"
 check "SKIP takes the table's tag and drops every part of it" "! grep -q 'qa2s' $W/skip.log && grep -q 'qa32Las1' $W/skip.log"
 check "one GPU, 16 cores, 64g, ghx4" "grep -q -- '--partition=ghx4 --account=acct --nodes=1 --gpus-per-node=1 --cpus-per-task=16 --mem=64g' $W/sbatch.log"
 check "job name matches the feeder's pattern" "[[ 'dtai3-eq_mdqa_realpad_8K-peqmdR' =~ ^dtai3-(.+)-p[A-Za-z0-9]+\$ ]]"
