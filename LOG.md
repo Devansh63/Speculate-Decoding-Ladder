@@ -70,6 +70,30 @@ directory overwrites the first.
 
 ---
 
+## 28 Nov 2026 (night): dtai3 smoke passed; all 103 pieces queued
+
+**Setup on DeltaAI.** Devansh has no venv of his own there; every dtai2 job
+ran on Sahil's (`/work/nvme/bikd/ssashi/Speculative_Ladder/vllm033_gh200`), so
+dtai3 uses it too (`export LADDER_VENV=...` before `deltaai_env.sh`). The
+workload build ran in a separate `buildenv` under `$LADDER_ROOT`, which needed
+`jinja2` added (transformers applies chat templates with it and does not
+install it). `PROJ=... ACCOUNT=... source deltaai_env.sh` drops `ACCOUNT`
+when the source returns; export both first. `test_dtai3.sh` 59 of 59 on the
+login node with the real tokenizer. DeepSeek step: 404 requests, all ok
+after one top-up (the first run stopped at HTTP 402, insufficient balance).
+
+**Smoke piece, job 3689701** (QA 2K, 4 prompts, cells `t a l`, all exit 0).
+Every row `finished_stop` 4 of 4: in chat format every answer ended on its
+own, about 580 tokens each. `per_request_spec_seen` 4 in every `a` row, and
+`logprobs_seen` 4 in the `l` row, so logprobs work on vLLM 0.33.0 with Model
+Runner V2. DFlash k=15 wrote 2,340 tokens against 2,330 for every other arm:
+it changed at least one output, the dtai2 divergence again (question to
+Sahil in HANDOFF).
+
+**Queued.** Tiers 1, 0, 2 and 3, in that order, jobs 3689743 to 3689845 on
+Devansh's allocation; `dtai3_feeder.sh` in tmux session `build` moves them
+through ghx4-interactive one at a time, first 3689743 (`ragquote` 2K).
+
 ## 28 Nov 2026: dtai3 third check; a logprob cell and Spec-Bench added
 
 **Why.** Before queueing, a line-by-line check, and a look at what recent
