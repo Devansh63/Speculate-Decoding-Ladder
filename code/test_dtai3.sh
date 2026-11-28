@@ -41,10 +41,13 @@ mkdir -p "$QWEN" "$DFL"
 printf '{"architectures":["DFlashDraftModel"],"num_hidden_layers":5}\n' > "$DFL/config.json"
 HAVE_TOK=0
 if [ -n "${QWEN_TOK:-}" ] && [ -f "$QWEN_TOK/tokenizer.json" ] && [ -f "$QWEN_TOK/tokenizer_config.json" ] \
-   && python3 -c "import transformers" 2>/dev/null; then
+   && python3 -c "import transformers, jinja2" 2>/dev/null; then
   cp "$QWEN_TOK/tokenizer.json" "$QWEN_TOK/tokenizer_config.json" "$QWEN/"
   [ -f "$QWEN_TOK/config.json" ] && cp "$QWEN_TOK/config.json" "$QWEN/"
   HAVE_TOK=1
+elif [ -n "${QWEN_TOK:-}" ]; then
+  echo "NOTE: QWEN_TOK is set but python3 here cannot import transformers and jinja2"
+  echo "      (chat templates need jinja2); the chat-template tests will be skipped."
 fi
 
 cat > "$W/stub/vllm/__init__.py" <<'EOF'

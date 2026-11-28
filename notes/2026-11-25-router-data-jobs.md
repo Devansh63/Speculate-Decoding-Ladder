@@ -244,8 +244,8 @@ tmux new -s build
 cd /work/nvme/bikd/dagraw2/Speculative_Ladder/repo && git pull && cd code
 export LADDER_VENV=/work/nvme/bikd/ssashi/Speculative_Ladder/vllm033_gh200   # the venv every dtai2 job used
 PROJ=bikd ACCOUNT=bikd-dtai-gh source deltaai_env.sh
-"$LADDER_VENV/bin/python3" -c "import transformers, pyarrow, huggingface_hub" || { "$LADDER_VENV/bin/python3" -m venv "$LADDER_ROOT/buildenv" && "$LADDER_ROOT/buildenv/bin/pip" install -q transformers pyarrow huggingface_hub; }
-BPY=$( "$LADDER_VENV/bin/python3" -c "import transformers, pyarrow" 2>/dev/null && echo "$LADDER_VENV/bin/python3" || echo "$LADDER_ROOT/buildenv/bin/python3" )
+"$LADDER_VENV/bin/python3" -c "import transformers, pyarrow, huggingface_hub, jinja2" || { "$LADDER_VENV/bin/python3" -m venv "$LADDER_ROOT/buildenv" && "$LADDER_ROOT/buildenv/bin/pip" install -q transformers pyarrow huggingface_hub jinja2; }
+BPY=$( "$LADDER_VENV/bin/python3" -c "import transformers, pyarrow, jinja2" 2>/dev/null && echo "$LADDER_VENV/bin/python3" || echo "$LADDER_ROOT/buildenv/bin/python3" )
 "$BPY" build_router_workloads.py --check
 "$BPY" build_router_workloads.py
 PATH="$(dirname "$BPY"):$PATH" QWEN_TOK=$LADDER_HF/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218 bash test_dtai3.sh
@@ -257,8 +257,9 @@ binary for their ratios to sit beside dtai2's. `deltaai_env.sh` keeps a
 `LADDER_VENV` that is already set. Sahil leaves the line out.
 
 The build venv exists so the measurement venv is never changed by a
-`pip install`. The `PATH` prefix gives the test the python that has
-`transformers`.)
+`pip install`. It needs `jinja2` as well: `transformers` applies chat
+templates with it but does not install it (28 Nov, on DeltaAI). The `PATH`
+prefix gives the test the python that has `transformers`.)
 
 Then the smoke piece, and read its log before anything else:
 

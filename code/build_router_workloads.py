@@ -137,6 +137,10 @@ class Tok:
     """The target's tokenizer: content lengths and chat-templated lengths."""
 
     def __init__(self, path):
+        try:
+            import jinja2  # noqa: F401  transformers needs it for chat templates, and does not install it
+        except ImportError:
+            sys.exit("jinja2 is missing: pip install jinja2 (into the python running this script)")
         from transformers import AutoTokenizer
         self.t = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
         self._memo = {}
