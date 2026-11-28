@@ -243,7 +243,7 @@ ssh dagraw2@dtai-login.delta.ncsa.illinois.edu
 tmux new -s build
 cd /work/nvme/bikd/dagraw2/Speculative_Ladder/repo && git pull && cd code
 export LADDER_VENV=/work/nvme/bikd/ssashi/Speculative_Ladder/vllm033_gh200   # the venv every dtai2 job used
-PROJ=bikd ACCOUNT=bikd-dtai-gh source deltaai_env.sh
+export PROJ=bikd ACCOUNT=bikd-dtai-gh && source deltaai_env.sh
 "$LADDER_VENV/bin/python3" -c "import transformers, pyarrow, huggingface_hub, jinja2" || { "$LADDER_VENV/bin/python3" -m venv "$LADDER_ROOT/buildenv" && "$LADDER_ROOT/buildenv/bin/pip" install -q transformers pyarrow huggingface_hub jinja2; }
 BPY=$( "$LADDER_VENV/bin/python3" -c "import transformers, pyarrow, jinja2" 2>/dev/null && echo "$LADDER_VENV/bin/python3" || echo "$LADDER_ROOT/buildenv/bin/python3" )
 "$BPY" build_router_workloads.py --check
@@ -254,7 +254,10 @@ PATH="$(dirname "$BPY"):$PATH" QWEN_TOK=$LADDER_HF/models--Qwen--Qwen3-8B/snapsh
 (`LADDER_VENV`: Devansh has no venv of his own on DeltaAI; every dtai2 job ran
 on Sahil's, as every dtai2 log records, and the dtai3 jobs must use the same
 binary for their ratios to sit beside dtai2's. `deltaai_env.sh` keeps a
-`LADDER_VENV` that is already set. Sahil leaves the line out.
+`LADDER_VENV` that is already set. Sahil leaves the line out. `PROJ` and
+`ACCOUNT` are exported first: written as `PROJ=... ACCOUNT=... source
+deltaai_env.sh`, bash keeps them only while the file is sourced, and
+`submit_dtai3.sh` then stops with "missing ACCOUNT" (28 Nov).
 
 The build venv exists so the measurement venv is never changed by a
 `pip install`. It needs `jinja2` as well: `transformers` applies chat
