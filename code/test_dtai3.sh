@@ -257,6 +257,9 @@ check "ragquote: LIM1 62 and prefix caching off" "grep -q '^gh200r_ragquote_2K_t
 check "thinking cells: on, 2048 tokens, 25 prompts" "grep -q '^gh200r_qa_2K_tT_px5|2K|1|25|||on|2048|' $W/cells.log && grep -q '^gh200r_qa_2K_aT_px5|2K|1|25|1|detailed|on|2048|' $W/cells.log"
 : > "$W/cells.log"; job PIECE=x11 WL=qa B=2K CELLS="l lT"
 check "l: off alone, 50 prompts, logprobs 5; lT: thinking, 25, 2048" "grep -q '^gh200r_qa_2K_l_px11|2K|1|50||||||||qa|5$' $W/cells.log && grep -q '^gh200r_qa_2K_lT_px11|2K|1|25|||on|2048||||qa|5$' $W/cells.log"
+: > "$W/cells.log"; job PIECE=x12 WL=qa B=2K CELLS="t1 t2 t0 tn a1 a2 c4n c4d"
+check "halves: t1 off+ngram, t2 dflash, t0 off, tn ngram" "grep -q '^gh200r_qa_2K_t1_px12|2K|1|50||||||5 11||qa|$' $W/cells.log && grep -q '^gh200r_qa_2K_t2_px12|2K|1|50|1||||||7 15|qa|$' $W/cells.log && grep -q '^gh200r_qa_2K_t0_px12|2K|1|50||||||||qa|$' $W/cells.log && grep -q '^gh200r_qa_2K_tn_px12|2K|1|50|1|||||5 11||qa|$' $W/cells.log"
+check "halves: a1 ngram, a2 dflash (detailed); c4n off+ngram 5, c4d dflash 4 7 15" "grep -q '^gh200r_qa_2K_a1_px12|2K|1|50|1|detailed||||5 11||qa|$' $W/cells.log && grep -q '^gh200r_qa_2K_a2_px12|2K|1|50|1|detailed|||||7 15|qa|$' $W/cells.log && grep -q '^gh200r_qa_2K_c4n_px12|2K|4|128||||||5||qa|$' $W/cells.log && grep -q '^gh200r_qa_2K_c4d_px12|2K|4|128|1||||||4 7 15|qa|$' $W/cells.log"
 : > "$W/cells.log"; job PIECE=x6 WL=mix B=mix CELLS="c8"
 check "mix: 64 prompts under load" "grep -q '^gh200r_mix_mix_c8_px6|mix|8|64|' $W/cells.log"
 job PIECE=x7 WL=nosuch B=2K CELLS="t"
@@ -274,8 +277,12 @@ check "plan lists the smoke piece with all three batch-1 cells" "grep -q '^S    
 check "pieces with no file are held, not submitted" "grep -q 'HELD: no .*/summ/2K.jsonl' $W/plan.log"
 check "plan only without GO" "grep -q 'plan only' $W/plan.log && [ ! -f $W/sbatch.log ]"
 (cd "$CODE" && bash submit_dtai3.sh TIERS=0 ONLY="qa2 qa32La" GO=1) > "$W/go.log" 2>&1
-check "GO=1 submits exactly the pieces asked for" "[ \$(grep -c . $W/sbatch.log) = 2 ]"
-check "sbatch gets the piece settings and a dtai3 job name" "grep -q 'PIECE=qa2 WL=qa B=2K CELLS=t a l LIM1= ' $W/sbatch.log && grep -q 'job-name=dtai3-qa_2K-pqa2' $W/sbatch.log"
+check "GO=1 submits exactly the pieces planned for the tags asked for" "[ \$(grep -c . $W/sbatch.log) = \$(grep -c 'ok, walltime' $W/go.log) ] && [ \$(grep -c . $W/sbatch.log) -ge 2 ]"
+check "a piece too long for 30 minutes is split; its parts cover the cell's arms" "grep -q 'qa2s1 .* t1 ' $W/go.log && grep -q 'qa2s2 .* t2 ' $W/go.log && grep -q ' c2n ' $W/go.log && grep -q ' c2d ' $W/go.log"
+check "no piece asks for more than 30 minutes" "! grep -q '01:00:00' $W/go.log && ! grep -q -- '--time=01:00:00' $W/sbatch.log"
+check "sbatch gets the piece settings and a dtai3 job name" "grep -q 'PIECE=qa2s1 WL=qa B=2K CELLS=t1 LIM1= ' $W/sbatch.log && grep -q 'job-name=dtai3-qa_2K-pqa2s1' $W/sbatch.log"
+(cd "$CODE" && bash submit_dtai3.sh TIERS=0 ONLY="qa2 qa32La" SKIP="qa2") > "$W/skip.log" 2>&1
+check "SKIP takes the table's tag and drops every part of it" "! grep -q 'qa2s' $W/skip.log && grep -q 'qa32Las1' $W/skip.log"
 check "one GPU, 16 cores, 64g, ghx4" "grep -q -- '--partition=ghx4 --account=acct --nodes=1 --gpus-per-node=1 --cpus-per-task=16 --mem=64g' $W/sbatch.log"
 check "job name matches the feeder's pattern" "[[ 'dtai3-eq_mdqa_realpad_8K-peqmdR' =~ ^dtai3-(.+)-p[A-Za-z0-9]+\$ ]]"
 

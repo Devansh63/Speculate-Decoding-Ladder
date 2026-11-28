@@ -203,35 +203,44 @@ evaluated only on real prompts.
 
 ## 7. Tiers and cost
 
-Estimates from the submitter's rough model (1.5 minutes to load each arm,
-guessed output lengths per workload); the smoke piece and the first tier-0
-pieces replace the guesses.
+Revised 28 Nov from measured numbers. Per-request timings from dtai2 give
+prefill and decode per token for every arm and length (2K: off 0.056 s and
+5.85 ms per token, n-gram about 4.8, DFlash k 15 2.65; 32K: off 1.45 s and
+7.11 ms); dtai2's load cells give the decode step under load; the smoke piece
+(job 3689701, 13.5 minutes) gives model load per arm, 45 to 55 s with a warm
+compile cache and 80 to 130 s cold.
 
-| Tier | Pieces | Est. GPU time | What it answers |
+**Every piece fits 30 minutes.** ghx4 had 5,195 jobs waiting on 28 Nov, and
+short limits are what backfill starts (18 Nov). `submit_dtai3.sh` sizes each
+piece for the worst case (every answer at the token cap, n-gram no faster than
+off, DFlash 30% slower than measured, cold loads) and splits any piece that
+would not fit 27 minutes: first into its cells, then into halves of a cell
+(`t1` `t2`, `a1` `a2`, `c<N>n` `c<N>d`), then `t1` into `t0` and `tn`, and
+packs the parts back together as far as the limit allows. The parts of a cell
+together run exactly the cell's arms. Split pieces are tagged
+`<piece>s1`, `<piece>s2`, ...; `ONLY` and `SKIP` take the table's tags.
+Splitting costs almost nothing, because every arm already loads the model in
+its own process. 20-minute limits for pieces whose worst case fits 17.
+
+| Tier | Pieces | Expected GPU time | What it answers |
 |---|---|---|---|
-| S | 1 | 17 min | Does chat mode work on DeltaAI (template, stop ids, per-request acceptance, logprobs)? |
-| 0 | 42 | about 15 h | Does the crossover survive the chat format? Where is the switch point at 16K? Do tasks flip the winner at 16K or 32K? How does load move it? |
-| 1 | 33 | about 14 h | Does the instruction change the winner on one document? Code edits, real chats, agent traces, Spec-Bench's six categories; the padding test |
-| 2 | 15 | about 7 h | AI-written prompts across copy levels; LLM padding; synthetic against real prompts |
-| 3 | 13 | about 5 h | Tasks under load, mixed-length batches, thinking on |
+| S | 1 | 11 min (13.5 measured) | Does chat mode work on DeltaAI (template, stop ids, per-request acceptance, logprobs)? |
+| 0 | 95 | about 11 h | Does the crossover survive the chat format? Where is the switch point at 16K? Do tasks flip the winner at 16K or 32K? How does load move it? |
+| 1 | 109 | about 11 h | Does the instruction change the winner on one document? Code edits, real chats, agent traces, Spec-Bench's six categories; the padding test |
+| 2 | 45 | about 6 h | AI-written prompts across copy levels; LLM padding; synthetic against real prompts |
+| 3 | 22 | about 3.5 h | Tasks under load, mixed-length batches, thinking on |
 
-Every piece fits a 30-minute or 1-hour walltime (short limits start sooner on
-ghx4; LOG, 18 Nov): the heaviest pieces are split into a `t` piece and an
-`a` piece. Total about 41 GPU-hours (104 pieces). The model overestimates:
-against the dtai2 off arms at 256 tokens it predicts 33% too much time at 2K
-and almost twice the time at 32K, so the real figure is likely lower.
+272 pieces, 125 with 20-minute and 147 with 30-minute limits, about 31.5
+GPU-hours expected (the worst case is about twice that, which only sizes the
+limits).
 
-**Charges.** Pieces that `dtai3_feeder.sh` moves to ghx4-interactive are
-charged at twice the GPU-hour rate (qos_ghx4int, LOG 18 Nov), so 41 GPU-hours
-can cost up to 82 charged hours if everything goes through the feeder. Check
-the balance with `accounts` before submitting tiers 2 and 3.
+**No feeder by default.** `dtai3_feeder.sh` moves pieces to ghx4-interactive,
+which bills twice the GPU-hour rate and takes one job at a time; with short
+pieces on ghx4 it is not needed. It still works if a deadline makes the double
+rate worth paying.
 
-**Suggested split:** Devansh runs S and 0; Sahil runs 1 on identical inputs:
-either `LADDER_ROUTER=/work/nvme/bikd/dagraw2/Speculative_Ladder/data/router`
-if he can read that directory, or his own build (the build is deterministic:
-every random choice is seeded from the item id). Either way, compare the
-`sha256` of each file in the two `manifest.json` files before running.
-Whoever has hours left runs 2 and 3.
+**Suggested split:** whoever submits a tier runs all of it; record it in
+HANDOFF so the other does not submit it again.
 
 ## 8. How to run it
 
@@ -282,12 +291,19 @@ Smoke checklist (log `$LADDER_ROOT/logs/dtai3-smoke-<job>.out`):
   no `error` key (if vLLM 0.33.0 on Model Runner V2 refuses logprobs, only
   the `l` cells fail; everything else is unaffected).
 
-Then tier 0, with the feeder moving waiting pieces through ghx4-interactive:
+Then the tiers, in this order (the scheduler starts equal-priority jobs in
+submission order):
 
 ```bash
+bash submit_dtai3.sh TIERS=1 GO=1
 bash submit_dtai3.sh TIERS=0 GO=1
-tmux new -s feeder3 "bash dtai3_feeder.sh"
+bash submit_dtai3.sh TIERS=2 GO=1
+bash submit_dtai3.sh TIERS=3 GO=1
 ```
+
+If `sbatch` refuses a piece (a per-user job limit, say), the submitter stops
+and lists what it submitted; submit the rest later with `SKIP` set to the
+table tags already in.
 
 The AI step, on the login node (or a laptop, copying `data/router/_ai` there
 and back if the login node cannot reach the API). The key goes in the shell

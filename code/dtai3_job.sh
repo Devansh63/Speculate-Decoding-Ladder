@@ -23,6 +23,10 @@
 #                     greedy reference the a cell's steps are aligned to
 #             tT aT lT the same with thinking on, 2048 tokens, 25 prompts
 #             c<N>    concurrency N: off, n-gram k 5, DFlash k 4 7 15
+#             t1 t2 a1 a2 tT1 tT2 aT1 aT2 c<N>n c<N>d   halves of the cells
+#                     above (added 28 Nov), which submit_dtai3.sh uses when a
+#                     whole cell would not fit a 30-minute limit; t0 tn (and
+#                     tT0 tTn) split t1 once more: off alone, n-gram k 5 11
 #   LIM1    prompts in a batch-1 cell (default 50, 25 at 32K, never more
 #           than the file holds less two for the warm-up)
 #   LIML    prompts in a load cell (default 128 at 2K and 8K, 64 at 16K and
@@ -112,14 +116,34 @@ for c in $CELLS; do
     aT) cell aT CONC=1 LIMIT="$(cap 25)" THINK=on MAXTOK=2048 SKIP_OFF=1 PERREQ=detailed "K_NGRAM_GPU=5 11" "K_DFLASH=7 15" ;;
     l)  cell l  CONC=1 LIMIT="$LIM1" LOGPROBS=5 K_NGRAM_GPU= K_DFLASH= ;;
     lT) cell lT CONC=1 LIMIT="$(cap 25)" THINK=on MAXTOK=2048 LOGPROBS=5 K_NGRAM_GPU= K_DFLASH= ;;
+    # Halves (28 Nov), so a piece fits a 30-minute limit: the same arms as the
+    # cell above, in two pieces. 1 = off (t only) and n-gram k 5 11; 2 = DFlash
+    # k 7 15. Their rows together are exactly the whole cell's.
+    t1)  cell t1  CONC=1 LIMIT="$LIM1" "K_NGRAM_GPU=5 11" K_DFLASH= ;;
+    t2)  cell t2  CONC=1 LIMIT="$LIM1" SKIP_OFF=1 K_NGRAM_GPU= "K_DFLASH=7 15" ;;
+    a1)  cell a1  CONC=1 LIMIT="$LIM1" SKIP_OFF=1 PERREQ=detailed "K_NGRAM_GPU=5 11" K_DFLASH= ;;
+    a2)  cell a2  CONC=1 LIMIT="$LIM1" SKIP_OFF=1 PERREQ=detailed K_NGRAM_GPU= "K_DFLASH=7 15" ;;
+    t0)  cell t0  CONC=1 LIMIT="$LIM1" K_NGRAM_GPU= K_DFLASH= ;;
+    tn)  cell tn  CONC=1 LIMIT="$LIM1" SKIP_OFF=1 "K_NGRAM_GPU=5 11" K_DFLASH= ;;
+    tT1) cell tT1 CONC=1 LIMIT="$(cap 25)" THINK=on MAXTOK=2048 "K_NGRAM_GPU=5 11" K_DFLASH= ;;
+    tT0) cell tT0 CONC=1 LIMIT="$(cap 25)" THINK=on MAXTOK=2048 K_NGRAM_GPU= K_DFLASH= ;;
+    tTn) cell tTn CONC=1 LIMIT="$(cap 25)" THINK=on MAXTOK=2048 SKIP_OFF=1 "K_NGRAM_GPU=5 11" K_DFLASH= ;;
+    tT2) cell tT2 CONC=1 LIMIT="$(cap 25)" THINK=on MAXTOK=2048 SKIP_OFF=1 K_NGRAM_GPU= "K_DFLASH=7 15" ;;
+    aT1) cell aT1 CONC=1 LIMIT="$(cap 25)" THINK=on MAXTOK=2048 SKIP_OFF=1 PERREQ=detailed "K_NGRAM_GPU=5 11" K_DFLASH= ;;
+    aT2) cell aT2 CONC=1 LIMIT="$(cap 25)" THINK=on MAXTOK=2048 SKIP_OFF=1 PERREQ=detailed K_NGRAM_GPU= "K_DFLASH=7 15" ;;
     c[0-9]*)
-      n=${c#c}
+      # c<N> all five arms; c<N>n off and n-gram k 5; c<N>d DFlash k 4 7 15 (28 Nov halves)
+      n=${c#c}; half=""
+      case "$n" in *n) half=n; n=${n%n} ;; *d) half=d; n=${n%d} ;; esac
       case "$n" in *[!0-9]*|"") echo "unknown cell $c"; STATUS+=("cell $c unknown"); FAILED=$((FAILED + 1)); continue ;; esac
-      cell "$c" CONC="$n" LIMIT="$LIML" K_NGRAM_GPU=5 "K_DFLASH=4 7 15" ;;
+      case "$half" in
+        "") cell "$c" CONC="$n" LIMIT="$LIML" K_NGRAM_GPU=5 "K_DFLASH=4 7 15" ;;
+        n)  cell "$c" CONC="$n" LIMIT="$LIML" K_NGRAM_GPU=5 K_DFLASH= ;;
+        d)  cell "$c" CONC="$n" LIMIT="$LIML" SKIP_OFF=1 K_NGRAM_GPU= "K_DFLASH=4 7 15" ;;
+      esac ;;
     *) echo "unknown cell $c"; STATUS+=("cell $c unknown"); FAILED=$((FAILED + 1)) ;;
   esac
 done
-
 echo
 echo "==================== dtai3 piece $PIECE summary  $(date)"
 for s in "${STATUS[@]}"; do echo "  $s"; done

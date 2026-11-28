@@ -70,6 +70,25 @@ directory overwrites the first.
 
 ---
 
+## 28 Nov 2026 (later): dtai3 re-planned into 272 pieces of 30 minutes or less
+
+**Why.** 84 of the 103 queued pieces had 1-hour limits, ghx4 had 5,195 jobs
+waiting, and the feeder's route (ghx4-interactive) bills twice. On 18 Nov the
+30-minute pieces were the ones backfill started. The feeder was stopped
+(`touch ~/STOP_FEEDER`) and its one move (3689743) put back on ghx4.
+
+**What changed.** `submit_dtai3.sh` now plans from measured numbers (dtai2
+per-request prefill and decode per arm and length, dtai2 load cells, the smoke
+piece's 45 to 130 s per-arm load) at the worst case, and splits pieces until
+each fits 27 minutes; `dtai3_job.sh` gained the half cells it splits into
+(`t1` `t2` `t0` `tn` `a1` `a2` `c<N>n` `c<N>d`, and the thinking ones), whose
+parts together run exactly the whole cell's arms. 272 pieces, 125 at 20
+minutes and 147 at 30, about 31.5 GPU-hours expected (the old model said 41).
+`test_dtai3.sh` 64 of 64 with the tokenizer, `test_dtai2.sh` 116 of 116.
+
+**Next.** Cancel the waiting 1-hour pieces, resubmit by tier (1, 0, 2, 3), no
+feeder.
+
 ## 28 Nov 2026 (night): dtai3 smoke passed; all 103 pieces queued
 
 **Setup on DeltaAI.** Devansh has no venv of his own there; every dtai2 job

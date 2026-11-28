@@ -6,6 +6,8 @@
 #   PROJ=<code> ACCOUNT=<name> source deltaai_env.sh
 #   bash submit_dtai3.sh TIERS=S                 # the plan for the smoke piece
 #   bash submit_dtai3.sh TIERS=S GO=1            # run it first (about 15 minutes)
+#   Pieces too long for a 30-minute limit are split by the planner below
+#   (tags <piece>s1, <piece>s2, ...); ONLY and SKIP take the table's tags.
 #   bash submit_dtai3.sh TIERS=0 GO=1            # then tier 0, and so on
 #
 # Knobs (KEY=VALUE arguments or environment):
@@ -170,92 +172,164 @@ ROUTER=${LADDER_ROUTER:-$LADDER_ROOT/data/router}
 case "$ROUTER" in /projects/*) echo "LADDER_ROUTER is under /projects" >&2; exit 1 ;; esac
 mkdir -p "$LADDER_ROOT/logs" "$LADDER_ROOT/results"
 
-# A rough time model, only for the plan and the walltime (minutes). Measured
-# GH200 batch-1 numbers at 256 tokens put model loading under a minute per arm
-# (task pieces: 5 arms of 50 prompts in 7 to 11 minutes); 1.5 is the guess here.
-# Expected output lengths in chat format are guesses per workload, to be
-# replaced by the smoke piece's and tier 0's measured ones.
-est () {  # $1 workload $2 bucket $3 cells $4 lim1 $5 rows -> minutes
-  "$LADDER_VENV/bin/python3" - "$@" <<'EOF'
-import sys
-wl, b, cells, lim1, rows = sys.argv[1], sys.argv[2], sys.argv[3].split(), sys.argv[4], int(sys.argv[5])
-P = {"nat": 0.05, "2K": 0.15, "8K": 0.6, "16K": 1.4, "32K": 3.5, "mix": 1.8}[b]
-tok = {"nat": 0.0075, "2K": 0.0075, "8K": 0.008, "16K": 0.009, "32K": 0.011, "mix": 0.009}[b]
-out = {"qa": 450, "code": 150, "summ": 700, "fewshot": 60, "mdqa": 30, "ragquote": 300, "codeedit": 600,
-       "codeedit_ai": 450, "chat": 500, "agent": 250, "synth": 400, "twins_real": 500, "twins_ai": 500,
-       "mix": 450, "sb_mt": 600, "sb_trans": 60, "sb_summ": 250, "sb_qa": 120, "sb_math": 300,
-       "sb_rag": 250}.get(wl, 30 if "mdqa" in wl else 60 if "fewshot" in wl else 400)
-d1 = 25 if b == "32K" else 50
-n1 = min(int(lim1) if lim1 else d1, rows - 2)
-dl = {"2K": 128, "8K": 128, "32K": 48}.get(b, 64)
-nl = min(dl, rows - 2)
-load = 1.5
-m = 0.0
-for c in cells:
-    if c in ("t", "tT"):
-        o = 1800 if c == "tT" else out
-        n = min(25, rows - 2) if c == "tT" else n1
-        per = P + o * tok
-        m += 5 * load + n * per * (1 + 4 / 1.6) / 60
-    elif c in ("a", "aT"):
-        o = 1800 if c == "aT" else out
-        n = min(25, rows - 2) if c == "aT" else n1
-        m += 4 * load + n * (P + o * tok) * (4 / 1.6) / 60
-    elif c in ("l", "lT"):  # the off arm alone, with logprobs
-        o = 1800 if c == "lT" else out
-        n = min(25, rows - 2) if c == "lT" else n1
-        m += load + n * (P + o * tok) * 1.1 / 60
-    elif c.startswith("c"):
-        k = int(c[1:])
-        arm = nl * P + nl * out * tok / (0.8 * k)
-        m += 5 * load + arm * (1 + 4 / 1.3) / 60
-print(int(m + 0.999))
+# The plan (28 Nov): every piece's time from measured GH200 numbers, and any
+# piece that would not fit a 30-minute limit split until it does. Short limits
+# are what start on ghx4: ghx4 had 5,195 jobs waiting on 28 Nov, and on 18 Nov
+# 30-minute pieces backfilled while 1-hour pieces waited. Splitting costs almost
+# nothing: every arm already loads the model in its own process.
+#
+# Measured, and where each number comes from:
+#   prefill and decode per token, per arm and context length, batch 1: the
+#     dtai2 per-request timings (results/gh200*/perreq_*.json, 400 to 1,300
+#     requests per arm; e.g. 2K off 0.056 s and 5.85 ms per token, DFlash k 15
+#     2.65 ms; 32K off 1.45 s and 7.11 ms)
+#   decode step under load: dtai2's load cells, prefill taken out
+#   model load per arm: the smoke piece (job 3689701): 45 to 55 s once the
+#     compile cache is warm, 80 to 130 s cold
+# Sized for the worst case so nothing times out: every answer at the token cap
+# (1,024; 2,048 thinking), n-gram no faster than the off arm (chat prompts copy
+# less than the raw ones did), DFlash 30% slower than measured, loads cold.
+# A piece gets 20 minutes if that worst case plus 1.5 fits in 17, 30 if it fits
+# in 27; otherwise its cells are split into separate pieces and, where needed,
+# into halves (t1 t2, a1 a2, c<N>n c<N>d; dtai3_job.sh), then packed back
+# together as far as 27 minutes allows. Printed GPU time is the expected case
+# (measured speeds, outputs at a per-workload guess).
+plan () {
+  PIECES="$PIECES" TIERS="$TIERS" ONLY="${ONLY:-}" SKIP="${SKIP:-}" ROUTER="$ROUTER" \
+  "$LADDER_VENV/bin/python3" - <<'EOF'
+import os, re
+PRE = {"nat": 0.03, "2K": 0.056, "8K": 0.247, "16K": 0.65, "32K": 1.45, "mix": 0.75}
+DEC = {  # ms per token, batch 1, measured (dtai2)
+    "off":  {"nat": 5.85, "2K": 5.85, "8K": 6.12, "16K": 6.6, "32K": 7.11, "mix": 6.6},
+    "ng5":  {"nat": 4.87, "2K": 4.87, "8K": 4.73, "16K": 5.1, "32K": 5.46, "mix": 5.1},
+    "ng11": {"nat": 4.75, "2K": 4.75, "8K": 4.58, "16K": 5.0, "32K": 5.40, "mix": 5.0},
+    "df4":  {"nat": 3.18, "2K": 3.18, "8K": 4.16, "16K": 5.2, "32K": 6.26, "mix": 5.2},
+    "df7":  {"nat": 2.88, "2K": 2.88, "8K": 3.84, "16K": 4.9, "32K": 6.04, "mix": 4.9},
+    "df15": {"nat": 2.65, "2K": 2.65, "8K": 3.31, "16K": 4.6, "32K": 5.85, "mix": 4.6},
+}
+STEP = {"2K": {4: 6.15, 8: 6.57, 16: 7.4, 32: 9.8}, "8K": {4: 6.9, 8: 8.2, 16: 11.3},
+        "16K": {2: 7.5, 4: 8.5, 8: 12.0}, "32K": {2: 8.3, 4: 10.4, 8: 16.2}, "mix": {8: 11.0, 16: 16.0}}
+OUT = {"qa": 600, "code": 300, "summ": 600, "fewshot": 80, "mdqa": 60, "ragquote": 400, "codeedit": 700,
+       "codeedit_ai": 600, "chat": 550, "agent": 350, "synth": 500, "twins_real": 550, "twins_ai": 550,
+       "mix": 600, "sb_mt": 700, "sb_trans": 80, "sb_summ": 250, "sb_qa": 150, "sb_math": 350, "sb_rag": 300}
+B1 = {"t": ["off", "ng5", "ng11", "df7", "df15"], "t1": ["off", "ng5", "ng11"], "t2": ["df7", "df15"],
+      "a": ["ng5", "ng11", "df7", "df15"], "a1": ["ng5", "ng11"], "a2": ["df7", "df15"], "l": ["off"],
+      "t0": ["off"], "tn": ["ng5", "ng11"]}
+HALF = {"t": ["t1", "t2"], "a": ["a1", "a2"], "tT": ["tT1", "tT2"], "aT": ["aT1", "aT2"],
+        "t1": ["t0", "tn"], "tT1": ["tT0", "tTn"]}
+FIT20, FIT30, JOB = 17.0, 27.0, 1.5
+
+def out_tok(wl, think, worst):
+    cap = 2048 if think else 1024
+    if worst:
+        return cap
+    o = OUT.get(wl, 60 if "mdqa" in wl else 80 if "fewshot" in wl else 500)
+    return min(cap, o * (2.5 if think else 1))
+
+def cell_min(wl, b, cell, n1, nl, nT, worst):
+    think = "T" in cell
+    o = out_tok(wl, think, worst)
+    load = 1.5 if worst else 1.0
+    m = re.fullmatch(r"c(\d+)([nd]?)", cell)
+    if m:
+        c, half = int(m.group(1)), m.group(2)
+        arms = {"": ["off", "ng5", "df4", "df7", "df15"], "n": ["off", "ng5"], "d": ["df4", "df7", "df15"]}[half]
+        step = STEP.get(b, {}).get(c) or max(STEP.get(b, {"x": 12.0}).values())
+        per_arm = nl * PRE[b] + -(-nl // c) * o * step / 1000
+        if not worst:
+            per_arm *= 0.8
+        return len(arms) * ((load + 0.25) + per_arm / 60)
+    base = cell.replace("T", "")
+    arms = B1[base]
+    n = nT if think else n1
+    tot = 0.0
+    for a in arms:
+        d = DEC[a][b]
+        if worst:
+            d = DEC["off"][b] if a.startswith("ng") else d * 1.3
+        per = n * (PRE[b] + o * d / 1000) * (1.05 if base.startswith("a") else 1.1 if base == "l" else 1.0)
+        tot += load + per / 60
+    return tot
+
+def wall(m):
+    need = m + JOB
+    return "00:20:00" if need <= FIT20 else "00:30:00" if need <= FIT30 else "01:00:00"
+
+tiers = os.environ["TIERS"].split()
+only, skip = os.environ["ONLY"].split(), os.environ["SKIP"].split()
+router = os.environ["ROUTER"]
+for line in os.environ["PIECES"].strip().splitlines():
+    tier, piece, wl, b, cells, lim1 = line.split("|")
+    if tier not in tiers or (only and piece not in only) or piece in skip:
+        continue
+    f = os.path.join(router, wl, b + ".jsonl")
+    if not os.path.isfile(f) or os.path.getsize(f) == 0:
+        print("|".join(["HELD", tier, piece, wl, b, cells, "-", "-", "-", "-", f"HELD: no {f}"])); continue
+    rows = sum(1 for x in open(f) if x.strip())
+    if rows < 7:
+        print("|".join(["HELD", tier, piece, wl, b, cells, "-", str(rows), "-", "-", f"HELD: only {rows} rows"])); continue
+    d1 = 25 if b == "32K" else 50
+    n1 = min(int(lim1) if lim1 else d1, rows - 2)
+    nl = min({"2K": 128, "8K": 128, "32K": 48}.get(b, 64), rows - 2)
+    nT = min(25, rows - 2)
+    W = lambda c: cell_min(wl, b, c, n1, nl, nT, True)
+    def expand(c):  # split a cell until each part fits 27 minutes, or cannot split further
+        if W(c) + JOB <= FIT30:
+            return [c]
+        m = re.fullmatch(r"c(\d+)", c)
+        parts = [f"c{m.group(1)}n", f"c{m.group(1)}d"] if m else HALF.get(c)
+        return [x for p in parts for x in expand(p)] if parts else [c]
+    units = [u for c in cells.split() for u in expand(c)]
+    groups, cur = [], []
+    for u in units:  # pack back together, in order, as far as 27 minutes allows
+        if cur and sum(map(W, cur)) + W(u) + JOB > FIT30:
+            groups.append(cur); cur = []
+        cur.append(u)
+    groups.append(cur)
+    for i, g in enumerate(groups):
+        tag = piece if len(groups) == 1 else f"{piece}s{i + 1}"
+        worst = sum(map(W, g))
+        exp = sum(cell_min(wl, b, c, n1, nl, nT, False) for c in g)
+        print("|".join(["SUB", tier, tag, wl, b, " ".join(g), lim1, str(rows),
+                        f"{worst:.0f}", f"{exp:.1f}", wall(worst)]))
 EOF
 }
 
-printf '%-4s %-11s %-22s %-5s %-16s %5s %6s  %s\n' tier piece workload bucket cells rows est_min status
-total=0; n=0; nsub=0
+PLAN=$(plan) || { echo "the planner failed (above); nothing submitted" >&2; exit 1; }
+printf '%-4s %-13s %-22s %-5s %-16s %5s %6s %6s  %s\n' tier piece workload bucket cells rows worst expect status
+total=0; nwall=0; n=0; nsub=0; seen=" "
 SUBMITTED=()
-while IFS='|' read -r tier piece wl b cells lim1; do
-  [ -z "$tier" ] && continue
-  case " $TIERS " in *" $tier "*) ;; *) continue ;; esac
-  if [ -n "${ONLY:-}" ]; then case " $ONLY " in *" $piece "*) ;; *) continue ;; esac; fi
-  case " ${SKIP:-} " in *" $piece "*) continue ;; esac
-  f=$ROUTER/$wl/$b.jsonl
-  if [ ! -s "$f" ]; then
-    printf '%-4s %-11s %-22s %-5s %-16s %5s %6s  %s\n' "$tier" "$piece" "$wl" "$b" "$cells" - - "HELD: no $f"
+while IFS='|' read -r kind tier piece wl b cells lim1 rows worst exp wall; do
+  [ -z "$kind" ] && continue
+  if [ "$kind" = "HELD" ]; then
+    printf '%-4s %-13s %-22s %-5s %-16s %5s %6s %6s  %s\n' "$tier" "$piece" "$wl" "$b" "$cells" "$rows" - - "$wall"
     continue
   fi
-  rows=$(grep -c . "$f")
-  m=$(est "$wl" "$b" "$cells" "$lim1" "$rows")
-  # Walltime: the estimate times 1.3 plus 8 minutes, rounded up to 30, 60 or 120
-  # minutes. Short limits start sooner on ghx4 (18 Nov: two 30-minute pieces
-  # backfilled while 1-hour ones waited); a limit can be lowered later with
-  # scontrol update JobId=<id> TimeLimit=..., never raised.
-  need=$(( m * 13 / 10 + 8 ))
-  if [ "$need" -le 30 ]; then wall="00:30:00"; elif [ "$need" -le 60 ]; then wall="01:00:00"; else wall="02:00:00"; fi
-  status="ok, walltime $wall"
-  [ "$rows" -lt 7 ] && status="HELD: only $rows rows"
-  printf '%-4s %-11s %-22s %-5s %-16s %5s %6s  %s\n' "$tier" "$piece" "$wl" "$b" "$cells" "$rows" "$m" "$status"
-  case "$status" in HELD*) continue ;; esac
-  total=$((total + m)); n=$((n + 1))
+  case "$seen" in *" $piece "*) echo "planner made the tag $piece twice; stopping" >&2; exit 1 ;; esac
+  seen="$seen$piece "
+  printf '%-4s %-13s %-22s %-5s %-16s %5s %6s %6s  %s\n' "$tier" "$piece" "$wl" "$b" "$cells" "$rows" "$worst" "$exp" "ok, walltime $wall"
+  total=$(awk -v t="$total" -v e="$exp" 'BEGIN { print t + e }'); n=$((n + 1))
+  [ "$wall" = "01:00:00" ] && nwall=$((nwall + 1))
   if [ "$GO" = "1" ]; then
     # env -u: a DeepSeek key exported in this shell for gen_router_ai.py must
     # not travel into the job's environment (--export=ALL would carry it).
-    jid=$(cd "$HERE" && PIECE="$piece" WL="$wl" B="$b" CELLS="$cells" LIM1="$lim1" \
+    if ! jid=$(cd "$HERE" && PIECE="$piece" WL="$wl" B="$b" CELLS="$cells" LIM1="$lim1" \
           env -u DEEPSEEK_API_KEY sbatch --parsable --partition="$PART" --account="$ACCOUNT" \
             --nodes=1 --gpus-per-node=1 --cpus-per-task=16 --mem=64g \
             --time="$wall" --job-name="dtai3-${wl}_${b}-p$piece" \
-            --output="$LADDER_ROOT/logs/dtai3-$piece-%j.out" --export=ALL dtai3_job.sh)
+            --output="$LADDER_ROOT/logs/dtai3-$piece-%j.out" --export=ALL dtai3_job.sh); then
+      echo "sbatch refused $piece; stopping. Submitted before it:" >&2
+      for s in "${SUBMITTED[@]}"; do echo "  $s" >&2; done
+      exit 1
+    fi
     SUBMITTED+=("$jid $piece"); nsub=$((nsub + 1))
   fi
-done <<< "$PIECES"
+done <<< "$PLAN"
 echo
-echo "$n pieces, about $((total / 60)) h $((total % 60)) min of GPU time by the rough model (each piece asks for 1 GPU)."
+echo "$n pieces, about $(awk -v t="$total" 'BEGIN { printf "%d h %d min", t / 60, t % 60 }') of GPU time expected (each piece asks for 1 GPU); $nwall need a 1-hour limit."
 if [ "$GO" = "1" ]; then
   echo "submitted $nsub:"; for s in "${SUBMITTED[@]}"; do echo "  $s"; done
   echo "logs: $LADDER_ROOT/logs/dtai3-<piece>-<job>.out   results: $LADDER_ROOT/results/gh200r_*"
-  echo "to move waiting 1-hour pieces through ghx4-interactive one at a time: bash dtai3_feeder.sh"
 else
   echo "plan only. Add GO=1 to submit."
 fi
