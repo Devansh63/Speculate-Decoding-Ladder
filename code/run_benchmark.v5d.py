@@ -169,6 +169,13 @@ What it adds:
   With natural stopping, arms that change the text also change its length,
   so compare arms per generated token (decode_s / gen_tokens per request),
   not by total elapsed time alone.
+
+  28 Nov, before any v5d run (so no row was made by the 25 Nov build):
+  5. --logprobs N (default 0, off). The target's top-N log-probabilities at
+     every generated position, per request: the confidence signal a
+     step-level router reads (an entropy policy needs it; nothing else in the
+     rows carries it). Allowed on the off arm only, so no timing row and no
+     speculative row is touched by the extra work. run_id gains _lpN.
 """
 
 import argparse
@@ -185,7 +192,7 @@ from vllm import LLM, SamplingParams
 # 18 Nov: v5c-2026-11-18 adds --ignore-eos (default off, so nothing else
 # changes): every request then runs to --max-tokens, which the task-type
 # workloads need so that every arm generates the same number of tokens.
-HARNESS_VERSION = "v5d-2026-11-25"
+HARNESS_VERSION = "v5d-2026-11-28"
 
 
 def parse_args():
@@ -263,6 +270,9 @@ def parse_args():
                         "chat template and stop at the end of the assistant turn")
     p.add_argument("--thinking", choices=["off", "on"], default="off",
                    help="Qwen3 enable_thinking for the chat template (chat only)")
+    p.add_argument("--logprobs", type=int, default=0,
+                   help="record the target's top-N logprobs per generated position "
+                        "(off arm only; 0 = off)")
     return p.parse_args()
 
 
@@ -400,6 +410,27 @@ def build_prompts(path, limit, style, messages_out=None):
             ids.append(d.get("_id", f"idx{len(ids)}"))
             domains.append(d.get("domain", ""))
     return prompts, ids, domains
+
+
+def extract_logprobs(out, tok_ids):
+    """v5d (28 Nov): per generated position, the chosen token's logprob and the
+    top-N (ids, logprobs) by rank. vLLM returns one {token_id: Logprob} per
+    position; anything else is recorded as an error rather than lose the run."""
+    lps = getattr(out, "logprobs", None)
+    if lps is None:
+        return {"error": "engine returned no logprobs"}
+    chosen, top_ids, top_lps = [], [], []
+    try:
+        for pos, d in enumerate(lps):
+            items = list(d.items()) if hasattr(d, "items") else []
+            items.sort(key=lambda kv: (getattr(kv[1], "rank", None) or 10 ** 9, -kv[1].logprob))
+            c = d.get(tok_ids[pos]) if hasattr(d, "get") and pos < len(tok_ids) else None
+            chosen.append(round(float(c.logprob), 4) if c is not None else None)
+            top_ids.append([int(k) for k, _ in items])
+            top_lps.append([round(float(v.logprob), 4) for _, v in items])
+    except Exception as e:  # keep what was read, say why it stopped
+        return {"chosen": chosen, "top_ids": top_ids, "top_lps": top_lps, "error": repr(e)}
+    return {"chosen": chosen, "top_ids": top_ids, "top_lps": top_lps}
 
 
 def chat_inputs(model, msg_lists, thinking):
@@ -613,6 +644,13 @@ def main():
         run_id += "_chat" + ("T" if args.thinking == "on" else "")
     elif args.thinking == "on":
         sys.exit("ABORT: --thinking on needs --prompt-format chat")
+    if args.logprobs:
+        if args.rung != "off":
+            sys.exit("ABORT: --logprobs is for the off arm only; a speculative or timed "
+                     "arm must not carry the extra work")
+        if args.logprobs < 0 or args.logprobs > 20:
+            sys.exit("ABORT: --logprobs must be 1 to 20")
+        run_id += f"_lp{args.logprobs}"
 
     # v5c: read two prompts past the limit and keep them for the warm-up, so
     # no measured prompt has been through the engine (and its prefix cache)
@@ -764,7 +802,8 @@ def main():
     sp = SamplingParams(temperature=args.temperature,
                         max_tokens=args.max_tokens, seed=args.seed,
                         **({"ignore_eos": True} if args.ignore_eos else {}),
-                        **({"stop_token_ids": stop_ids} if stop_ids else {}))
+                        **({"stop_token_ids": stop_ids} if stop_ids else {}),
+                        **({"logprobs": args.logprobs} if args.logprobs else {}))
 
     print(f"warmup ({args.warmup}): {warm_ids}", flush=True)
     if warmup_overlap:
@@ -834,6 +873,8 @@ def main():
         }
         if not args.no_token_ids:
             rec["token_ids"] = tok
+        if args.logprobs:  # v5d, 28 Nov
+            rec["logprobs"] = extract_logprobs(o.outputs[0], tok)
         if dom:
             rec["domain"] = dom
         # v4: per-prompt acceptance, when the engine was asked for it. The
@@ -913,6 +954,9 @@ def main():
         "stop_token_ids": stop_ids or None,
         "chat_template_sha256": template_sha,
         "finished_stop": sum(1 for r in per_request if r.get("finish_reason") == "stop"),
+        "logprobs": args.logprobs or None,
+        "logprobs_seen": sum(1 for r in per_request
+                             if isinstance(r.get("logprobs"), dict) and "error" not in r["logprobs"]),
         "dataset": args.dataset,
         "model": args.model,
         "draft": args.draft,

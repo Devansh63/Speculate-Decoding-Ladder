@@ -5,7 +5,8 @@
 #
 #   cd $LADDER_ROOT/repo/code && bash push_dtai3.sh "results: dtai3 tier 0 pieces <job ids>"
 #
-# Results land in results/gh200r/<directory>/, logs in results/gh200r/logs/ (gzipped).
+# Results land in results/gh200r/<directory>/ (results.jsonl plain, perreq_*.json
+# gzipped as perreq_*.json.gz), logs in results/gh200r/logs/ (gzipped).
 # Run as yourself: each teammate pushes their own pieces; directory names carry
 # the piece tag, so two teammates' pieces never collide.
 set -euo pipefail
@@ -29,7 +30,15 @@ for src in "$LADDER_ROOT"/results/gh200r_*; do
   [ -d "$src" ] || continue
   name=$(basename "$src")
   mkdir -p "$DST/$name"
-  find "$src" -maxdepth 1 -type f \( -name '*.jsonl' -o -name '*.json' \) -exec cp -p {} "$DST/$name/" \;
+  # results.jsonl as it is; the per-request files gzipped (token ids at up to
+  # 1,024 tokens, and the l cells' logprobs, would add hundreds of MB of JSON).
+  find "$src" -maxdepth 1 -type f -name '*.jsonl' -exec cp -p {} "$DST/$name/" \;
+  for f in "$src"/*.json; do
+    [ -f "$f" ] || continue
+    g="$DST/$name/$(basename "$f").gz"
+    [ -f "$g" ] && [ "$g" -nt "$f" ] && continue
+    gzip -n -c "$f" > "$g"
+  done
   n=$((n + 1))
 done
 [ "$n" -gt 0 ] || { echo "no gh200r_* results under $LADDER_ROOT/results" >&2; exit 1; }

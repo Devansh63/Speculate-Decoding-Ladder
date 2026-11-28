@@ -52,10 +52,12 @@ __version__ = "0.33.0-stub"
 import os, json, types
 LOG = os.environ.get("STUB_LOG", "/dev/null")
 class SamplingParams:
-    def __init__(self, temperature=0.0, max_tokens=256, seed=0, ignore_eos=False, stop_token_ids=None):
+    def __init__(self, temperature=0.0, max_tokens=256, seed=0, ignore_eos=False, stop_token_ids=None,
+                 logprobs=None):
         self.max_tokens, self.ignore_eos, self.stop_token_ids = max_tokens, ignore_eos, stop_token_ids
+        self.logprobs = logprobs
         open(LOG, "a").write(json.dumps({"sp": {"max_tokens": max_tokens, "ignore_eos": ignore_eos,
-                                                "stop": stop_token_ids}}) + "\n")
+                                                "stop": stop_token_ids, "logprobs": logprobs}}) + "\n")
 class _Spec:
     def __init__(self, d):
         self.method = d.get("method"); self.num_speculative_tokens = d.get("num_speculative_tokens")
@@ -83,8 +85,11 @@ class LLM:
             ids = p["prompt_token_ids"] if isinstance(p, dict) else list(range(max(1, len(p) // 4)))
             toks = list(range(min(sp.max_tokens, 8)))
             sm = NS(num_drafts=3, num_accepted_tokens=4, per_step_accepted=[1, 2, 1]) if prs else None
+            # vLLM's shape: per position {token_id: Logprob(logprob, rank)}, top-N plus the chosen token
+            lp = ([{t: NS(logprob=-0.1, rank=1), 1000 + t: NS(logprob=-2.5, rank=2)} for t in toks]
+                  if getattr(sp, "logprobs", None) else None)
             out.append(NS(prompt_token_ids=ids, metrics=m,
-                          outputs=[NS(token_ids=toks, finish_reason="stop", spec_decode_metrics=sm)]))
+                          outputs=[NS(token_ids=toks, finish_reason="stop", spec_decode_metrics=sm, logprobs=lp)]))
         self.n += len(prompts); return out
     def get_metrics(self):
         sc = self.kw.get("speculative_config")
@@ -181,6 +186,16 @@ exit(not all(y['prompt_tokens']>10 for y in b))\""
   python3 "$H5D" --dataset "$D/qa/2K.jsonl" --model "$QWEN" --rung off --bucket 2K --limit 3 --max-tokens 64 \
     --max-num-seqs 1 --outdir "$W/t3t" --prompt-format chat --thinking on --max-model-len 40960 > "$W/t3t.log" 2>&1
   check "thinking on: run_id _chatT" "python3 -c \"import json;r=json.loads(open('$W/t3t/results.jsonl').readline());exit(not r['run_id'].endswith('_chatT'))\""
+  python3 "$H5D" --dataset "$D/qa/2K.jsonl" --model "$QWEN" --rung off --bucket 2K --limit 3 --max-tokens 64 \
+    --max-num-seqs 1 --outdir "$W/t3lp" --prompt-format chat --logprobs 5 --max-model-len 40960 > "$W/t3lp.log" 2>&1
+  check "logprobs on the off arm: run_id _chat_lp5, every request read" "python3 -c \"
+import json,glob;r=json.loads(open('$W/t3lp/results.jsonl').readline())
+q=json.load(open(glob.glob('$W/t3lp/perreq_*')[0]))[0]['logprobs']
+exit(not(r['run_id'].endswith('_chat_lp5') and r['logprobs']==5 and r['logprobs_seen']==3
+         and q['chosen'][0]==-0.1 and q['top_ids'][0]==[0,1000] and len(q['top_lps'])==len(q['chosen'])))\""
+  python3 "$H5D" --dataset "$D/qa/2K.jsonl" --model "$QWEN" --rung ngram_gpu --k 5 --bucket 2K --limit 3 \
+    --max-num-seqs 1 --outdir "$W/t3lpx" --prompt-format chat --logprobs 5 > "$W/t3lpx.log" 2>&1
+  check "logprobs refused on a speculative arm" "grep -q 'off arm only' $W/t3lpx.log && [ ! -f $W/t3lpx/results.jsonl ]"
   python3 "$H5D" --dataset "$D/toolong/2K.jsonl" --model "$QWEN" --rung off --bucket 2K --limit 3 --max-tokens 64 \
     --max-num-seqs 1 --outdir "$W/t3l" --prompt-format chat --max-model-len 4096 > "$W/t3l.log" 2>&1
   check "too-long prompts abort before the engine loads" "grep -q 'prompts too long' $W/t3l.log && [ ! -f $W/t3l/results.jsonl ]"
@@ -205,6 +220,12 @@ exit(not all(r['spec_decode_metrics']['per_step_accepted']==[1,2,1] for r in b))
 else
   skip "router_cell arm runs (need the tokenizer for chat mode)"
 fi
+if [ "$HAVE_TOK" = "1" ]; then
+  cell BUCKET=2K LIMIT=3 LOGPROBS=5 K_NGRAM_GPU= K_DFLASH= LADDER_DATA="$D/qa" LADDER_OUT="$W/root/results/t4l" > "$W/t4l.log" 2>&1
+  check "LOGPROBS: the off arm alone, one row" "[ \"\$(grep -o 'rung=[a-z_]* k=[0-9]*' $W/t4l.log | tr '\n' ' ')\" = 'rung=off k=0 ' ] && [ \$(grep -c . $W/root/results/t4l/results.jsonl) = 1 ]"
+fi
+cell BUCKET=2K LIMIT=3 LOGPROBS=5 LADDER_DATA="$D/qa" LADDER_OUT="$W/x" > "$W/t4e.log" 2>&1
+check "LOGPROBS with drafter arms refused" "grep -q 'off-arm-only cell' $W/t4e.log"
 cell BUCKET=4K LIMIT=3 LADDER_DATA="$D/qa" LADDER_OUT="$W/x" > "$W/t4b.log" 2>&1
 check "unknown bucket refused" "grep -q \"BUCKET='4K'\" $W/t4b.log"
 cell BUCKET=16K LIMIT=30 LADDER_DATA="$D/code" LADDER_OUT="$W/x" > "$W/t4c.log" 2>&1
@@ -215,22 +236,24 @@ check "DFlash k above 15 refused" "grep -q 'at most 15' $W/t4d.log"
 echo "T5 dtai3_job.sh cell settings"
 cat > "$W/cell_stub.sh" <<'EOF'
 #!/bin/bash
-echo "$(basename "$LADDER_OUT")|$BUCKET|${CONC:-}|${LIMIT:-}|${SKIP_OFF:-}|${PERREQ:-}|${THINK:-}|${MAXTOK:-}|${PC:-}|${K_NGRAM_GPU:-}|${K_DFLASH:-}|$(basename "$LADDER_DATA")" >> "$CELLLOG"
+echo "$(basename "$LADDER_OUT")|$BUCKET|${CONC:-}|${LIMIT:-}|${SKIP_OFF:-}|${PERREQ:-}|${THINK:-}|${MAXTOK:-}|${PC:-}|${K_NGRAM_GPU:-}|${K_DFLASH:-}|$(basename "$LADDER_DATA")|${LOGPROBS:-}" >> "$CELLLOG"
 EOF
 chmod +x "$W/cell_stub.sh"
 job () { (cd "$CODE" && env LADDER_CELL="$W/cell_stub.sh" CELLLOG="$W/cells.log" "$@" bash dtai3_job.sh) > "$W/job.log" 2>&1; }
 : > "$W/cells.log"; job PIECE=x1 WL=qa B=2K CELLS="t a c4 c32"
-check "t: c1, 50 prompts, ngram 5 11, dflash 7 15" "grep -q '^gh200r_qa_2K_t_px1|2K|1|50||||||5 11|7 15|qa$' $W/cells.log"
-check "a: no off, detailed, all four arms (ngram 5 11, dflash 7 15)" "grep -q '^gh200r_qa_2K_a_px1|2K|1|50|1|detailed||||5 11|7 15|qa$' $W/cells.log"
-check "c4 and c32: 128 prompts, ngram 5, dflash 4 7 15" "grep -q '^gh200r_qa_2K_c4_px1|2K|4|128||||||5|4 7 15|qa$' $W/cells.log && grep -q '^gh200r_qa_2K_c32_px1|2K|32|128|' $W/cells.log"
+check "t: c1, 50 prompts, ngram 5 11, dflash 7 15" "grep -q '^gh200r_qa_2K_t_px1|2K|1|50||||||5 11|7 15|qa|$' $W/cells.log"
+check "a: no off, detailed, all four arms (ngram 5 11, dflash 7 15)" "grep -q '^gh200r_qa_2K_a_px1|2K|1|50|1|detailed||||5 11|7 15|qa|$' $W/cells.log"
+check "c4 and c32: 128 prompts, ngram 5, dflash 4 7 15" "grep -q '^gh200r_qa_2K_c4_px1|2K|4|128||||||5|4 7 15|qa|$' $W/cells.log && grep -q '^gh200r_qa_2K_c32_px1|2K|32|128|' $W/cells.log"
 : > "$W/cells.log"; job PIECE=x2 WL=qa B=32K CELLS="t c8"
 check "32K: 25 prompts at batch 1, 48 under load" "grep -q '^gh200r_qa_32K_t_px2|32K|1|25|' $W/cells.log && grep -q '^gh200r_qa_32K_c8_px2|32K|8|48|' $W/cells.log"
 : > "$W/cells.log"; job PIECE=x3 WL=code B=16K CELLS="t"
 check "a short file caps the prompt count (27 rows -> 25)" "grep -q '^gh200r_code_16K_t_px3|16K|1|25|' $W/cells.log"
 : > "$W/cells.log"; job PIECE=x4 WL=ragquote B=2K CELLS="t" LIM1=62
-check "ragquote: LIM1 62 and prefix caching off" "grep -q '^gh200r_ragquote_2K_t_px4|2K|1|62|||||off|5 11|7 15|ragquote$' $W/cells.log"
+check "ragquote: LIM1 62 and prefix caching off" "grep -q '^gh200r_ragquote_2K_t_px4|2K|1|62|||||off|5 11|7 15|ragquote|$' $W/cells.log"
 : > "$W/cells.log"; job PIECE=x5 WL=qa B=2K CELLS="tT aT"
 check "thinking cells: on, 2048 tokens, 25 prompts" "grep -q '^gh200r_qa_2K_tT_px5|2K|1|25|||on|2048|' $W/cells.log && grep -q '^gh200r_qa_2K_aT_px5|2K|1|25|1|detailed|on|2048|' $W/cells.log"
+: > "$W/cells.log"; job PIECE=x11 WL=qa B=2K CELLS="l lT"
+check "l: off alone, 50 prompts, logprobs 5; lT: thinking, 25, 2048" "grep -q '^gh200r_qa_2K_l_px11|2K|1|50||||||||qa|5$' $W/cells.log && grep -q '^gh200r_qa_2K_lT_px11|2K|1|25|||on|2048||||qa|5$' $W/cells.log"
 : > "$W/cells.log"; job PIECE=x6 WL=mix B=mix CELLS="c8"
 check "mix: 64 prompts under load" "grep -q '^gh200r_mix_mix_c8_px6|mix|8|64|' $W/cells.log"
 job PIECE=x7 WL=nosuch B=2K CELLS="t"
@@ -244,19 +267,23 @@ check "/projects refused" "grep -q 'under /projects' $W/job.log"
 
 echo "T6 submit_dtai3.sh"
 (cd "$CODE" && bash submit_dtai3.sh TIERS="S 0") > "$W/plan.log" 2>&1
-check "plan lists the smoke piece with 4 prompts" "grep -q '^S    smoke' $W/plan.log"
+check "plan lists the smoke piece with all three batch-1 cells" "grep -q '^S    smoke .* t a l ' $W/plan.log"
 check "pieces with no file are held, not submitted" "grep -q 'HELD: no .*/summ/2K.jsonl' $W/plan.log"
 check "plan only without GO" "grep -q 'plan only' $W/plan.log && [ ! -f $W/sbatch.log ]"
 (cd "$CODE" && bash submit_dtai3.sh TIERS=0 ONLY="qa2 qa32La" GO=1) > "$W/go.log" 2>&1
 check "GO=1 submits exactly the pieces asked for" "[ \$(grep -c . $W/sbatch.log) = 2 ]"
-check "sbatch gets the piece settings and a dtai3 job name" "grep -q 'PIECE=qa2 WL=qa B=2K CELLS=t a LIM1= ' $W/sbatch.log && grep -q 'job-name=dtai3-qa_2K-pqa2' $W/sbatch.log"
+check "sbatch gets the piece settings and a dtai3 job name" "grep -q 'PIECE=qa2 WL=qa B=2K CELLS=t a l LIM1= ' $W/sbatch.log && grep -q 'job-name=dtai3-qa_2K-pqa2' $W/sbatch.log"
 check "one GPU, 16 cores, 64g, ghx4" "grep -q -- '--partition=ghx4 --account=acct --nodes=1 --gpus-per-node=1 --cpus-per-task=16 --mem=64g' $W/sbatch.log"
 check "job name matches the feeder's pattern" "[[ 'dtai3-eq_mdqa_realpad_8K-peqmdR' =~ ^dtai3-(.+)-p[A-Za-z0-9]+\$ ]]"
 
 echo "T7 end to end through the real router_cell.sh and harness v5d"
 if [ "$HAVE_TOK" = "1" ]; then
-  (cd "$CODE" && PIECE=e2e WL=qa B=2K CELLS="t a" LIM1=3 bash dtai3_job.sh) > "$W/e2e.log" 2>&1
-  check "piece done, both cells exit 0" "grep -q '^done' $W/e2e.log && grep -q 'cell t exit=0' $W/e2e.log && grep -q 'cell a exit=0' $W/e2e.log"
+  (cd "$CODE" && PIECE=e2e WL=qa B=2K CELLS="t a l" LIM1=3 bash dtai3_job.sh) > "$W/e2e.log" 2>&1
+  check "piece done, all three cells exit 0" "grep -q '^done' $W/e2e.log && grep -q 'cell t exit=0' $W/e2e.log && grep -q 'cell a exit=0' $W/e2e.log && grep -q 'cell l exit=0' $W/e2e.log"
+  check "l cell: one off row with logprobs for every request" "python3 -c \"
+import json
+l=[json.loads(x) for x in open('$W/root/results/gh200r_qa_2K_l_pe2e/results.jsonl')]
+exit(not(len(l)==1 and l[0]['rung']=='off' and l[0]['logprobs_seen']==3))\""
   check "rows: 5 timing, 4 acceptance (one per arm), all v5d chat" "python3 -c \"
 import json
 t=[json.loads(l) for l in open('$W/root/results/gh200r_qa_2K_t_pe2e/results.jsonl')]

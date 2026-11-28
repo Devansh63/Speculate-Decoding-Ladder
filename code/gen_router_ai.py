@@ -49,8 +49,9 @@ import urllib.request
 
 URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/") + "/chat/completions"
 MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-flash")
-# USD per 1M tokens, deepseek-flash peak rates on 25 Nov 2026 (input cache miss, output);
-# only for the estimate printed by --dry-run.
+# USD per 1M tokens, deepseek-flash peak rates on 25 Nov 2026 (input cache miss, output),
+# unchanged on 28 Nov; off-peak (outside 01:00-04:00 and 06:00-10:00 UTC on weekdays) is
+# half. Only for the estimate printed by --dry-run.
 PRICE_IN, PRICE_OUT = 0.30, 1.20
 
 SYSTEM = ("You help build a benchmark of realistic user requests for a language model. "
@@ -159,6 +160,9 @@ def call(key, prompt, max_tokens, timeout=300):
     body = json.dumps({"model": MODEL, "messages": [{"role": "system", "content": SYSTEM},
                                                     {"role": "user", "content": prompt}],
                        "response_format": {"type": "json_object"}, "temperature": 1.0,
+                       # deepseek-flash thinks by default (DeepSeek docs, checked 28 Nov);
+                       # reasoning would spend max_tokens before the JSON is written
+                       "thinking": {"type": "disabled"},
                        "max_tokens": max_tokens, "stream": False}).encode()
     rq = urllib.request.Request(URL, data=body, method="POST", headers={
         "Content-Type": "application/json", "Authorization": "Bearer " + key})

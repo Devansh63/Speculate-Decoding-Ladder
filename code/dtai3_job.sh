@@ -17,7 +17,11 @@
 #                     different k (dtai2 note), a k=5 run's steps are not a k=11
 #                     run's steps cut short, and on the GH200 n-gram k=11 and
 #                     DFlash k=15 are the arms whose greedy output changed
-#             tT aT   the same with thinking on, 2048 tokens, 25 prompts
+#             l       batch 1, the off arm alone with the target's top-5
+#                     logprobs at every output position (added 28 Nov): the
+#                     confidence feature for a step-level router, and the
+#                     greedy reference the a cell's steps are aligned to
+#             tT aT lT the same with thinking on, 2048 tokens, 25 prompts
 #             c<N>    concurrency N: off, n-gram k 5, DFlash k 4 7 15
 #   LIM1    prompts in a batch-1 cell (default 50, 25 at 32K, never more
 #           than the file holds less two for the warm-up)
@@ -89,7 +93,7 @@ cell () {  # $1 cell name, then KEY=VALUE pairs for router_cell.sh
   local name=$1; shift
   echo "==================== cell $name  $(date +%H:%M:%S)"
   (
-    unset CONC LIMIT PC PERREQ MAXTOK MAXLEN PFORMAT THINK PSTYLE SKIP_OFF K_NGRAM_GPU K_DFLASH LADDER_OUT
+    unset CONC LIMIT PC PERREQ MAXTOK MAXLEN PFORMAT THINK PSTYLE SKIP_OFF K_NGRAM_GPU K_DFLASH LADDER_OUT LOGPROBS
     export BUCKET="$B" LADDER_DATA="$ROUTER/$WL" LADDER_OUT="$RES/gh200r_${WL}_${B}_${name}_p$PIECE"
     [ -n "$PCW" ] && export PC="$PCW"
     for kv in "$@"; do export "$kv"; done
@@ -106,6 +110,8 @@ for c in $CELLS; do
     a)  cell a  CONC=1 LIMIT="$LIM1" SKIP_OFF=1 PERREQ=detailed "K_NGRAM_GPU=5 11" "K_DFLASH=7 15" ;;
     tT) cell tT CONC=1 LIMIT="$(cap 25)" THINK=on MAXTOK=2048 "K_NGRAM_GPU=5 11" "K_DFLASH=7 15" ;;
     aT) cell aT CONC=1 LIMIT="$(cap 25)" THINK=on MAXTOK=2048 SKIP_OFF=1 PERREQ=detailed "K_NGRAM_GPU=5 11" "K_DFLASH=7 15" ;;
+    l)  cell l  CONC=1 LIMIT="$LIM1" LOGPROBS=5 K_NGRAM_GPU= K_DFLASH= ;;
+    lT) cell lT CONC=1 LIMIT="$(cap 25)" THINK=on MAXTOK=2048 LOGPROBS=5 K_NGRAM_GPU= K_DFLASH= ;;
     c[0-9]*)
       n=${c#c}
       case "$n" in *[!0-9]*|"") echo "unknown cell $c"; STATUS+=("cell $c unknown"); FAILED=$((FAILED + 1)); continue ;; esac

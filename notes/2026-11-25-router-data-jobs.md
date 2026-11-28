@@ -1,8 +1,11 @@
-# Router data jobs (dtai3), 25 Nov 2026
+# Router data jobs (dtai3), 25 Nov 2026 (revised 28 Nov)
 
 **Status:** built and tested offline (stub engine, real Qwen3 tokenizer, real
 source data); nothing has run on DeltaAI yet. The smoke piece is the first
-real test.
+real test. Revised 28 Nov after a third check and a look at what recent
+drafter-routing work trains on (section 1b): a logprob cell (`l`), Spec-Bench's
+six categories, a fixed `mix`, DeepSeek's thinking mode turned off, and
+gzipped per-request files on push.
 
 ## 1. Why these jobs
 
@@ -26,6 +29,45 @@ learn:
    each task at 32K, so 32K task data has to be constructed. Whether a
    construction behaves like natural text has to be measured, not assumed.
 
+## 1b. What the router needs, from recent work (28 Nov)
+
+Our per-prompt router learned nothing (3 to 4% explained, 0% gain under
+cross-validation). Recent drafter-routing work points to why, and to what
+data a learnable router needs:
+
+- **The best drafter changes inside one answer.** SpecRouter (NeurIPS 2026)
+  chooses among retrieval, a small draft model and a tree drafter before every
+  draft-verify block; retrieval wins while the model copies its prompt and
+  loses once it writes new text. It predicts each mechanism's accepted length,
+  prices it with a calibrated cost table, and beats the best single mechanism
+  by 27 to 30% on two 8B targets. WhiFlash (EMNLP 2026 Findings, already
+  threat 18's omission) routes per step between DFlash and EAGLE-3 on
+  Qwen3-8B with an entropy or a small neural policy, and shows that
+  task-level routing leaves most of the oracle's gain unused.
+- **The labels can be full-information.** Not-a-Bandit (arXiv:2510.20064)
+  scores every drafter on the trajectory the chosen one produced. Our runs are
+  greedy and lossless, so every arm writes the same tokens (where it does not,
+  the divergence point is known): n-gram's proposal at every position can be
+  replayed offline from the token ids, and DFlash's acceptance is measured at
+  each of its steps by the `a` cell (k 7 and 15 start steps at different
+  positions).
+- **The features are step-level.** What a step-level policy reads: the
+  target's confidence at the current position (WhiFlash's entropy policy;
+  SpecRouter reads the hidden state, which vLLM does not expose), the
+  current n-gram match length, and each drafter's recent acceptance. Only the
+  first needs the GPU, so the `l` cell records it: the target's top-5
+  logprobs at every generated position, on the off arm alone.
+- **The request mix.** Spec-Bench (translation, summarization, QA, math, RAG,
+  MT-bench) is what this literature reports on, and translation and math were
+  in no dtai3 workload. Agentic traces are where retrieval drafting wins most
+  (SuffixDecoding, NeurIPS 2025, SWE-Bench); we have them (`agent`).
+
+So the training example is a step, not a prompt: about 50 prompts of up to
+1,024 tokens give tens of thousands of labelled steps per cell, and the
+prompt-level counts below are enough. The cost side (time per step for each
+drafter, k and load) comes from the `t` and `c` cells and the two-constant
+cost model (notes/2026-11-18-cost-model.md).
+
 ## 2. What is new
 
 | File | What it is |
@@ -38,7 +80,7 @@ learn:
 | `code/submit_dtai3.sh` | The piece table, tiers, a time estimate, and `GO=1` to submit. |
 | `code/dtai3_feeder.sh` | `dtai2_feeder.sh` for dtai3 job names. |
 | `code/push_dtai3.sh` | Copies `gh200r_*` results and dtai3 logs into `results/gh200r/` and pushes. |
-| `code/test_dtai3.sh` | Offline tests (53 checks with the tokenizer). |
+| `code/test_dtai3.sh` | Offline tests (59 checks with the tokenizer). |
 
 Nothing existing was edited (RULES section 6). `test_dtai2.sh` still passes
 (116 of 116).
@@ -54,7 +96,8 @@ runs used 33,792, which a 32K prompt plus 1,024 tokens would exceed).
 | `t` | 1 | off; n-gram k 5, 11; DFlash k 7, 15 | per-prompt time for each drafter and k |
 | `a` | 1 | n-gram k 5, 11; DFlash k 7, 15, per-request acceptance | the labels: accepted tokens at every step, per prompt, measured for every k the router chooses between |
 | `c<N>` | N | off; n-gram k 5; DFlash k 4, 7, 15 | where load moves the switch point and the best k |
-| `tT`, `aT` | 1 | as `t`, `a`, thinking on, 2,048 tokens, 25 prompts | Qwen3's reasoning mode, a different output distribution |
+| `l` | 1 | off alone, `--logprobs 5` | the target's top-5 logprobs at every generated position: the step-level confidence feature, and the greedy reference sequence the `a` cell's steps are aligned to. Off arm only, so no timing or speculative row carries the extra work (added 28 Nov) |
+| `tT`, `aT`, `lT` | 1 | as `t`, `a`, `l`, thinking on, 2,048 tokens, 25 prompts | Qwen3's reasoning mode, a different output distribution |
 
 The `a` cell has no off arm: vLLM 0.33.0 refuses per-request acceptance
 without a drafter, which is why every dtai2 `acc` cell exited 1.
@@ -88,7 +131,8 @@ All lengths are Qwen3-8B tokens of the user content; the template adds about
 | `chat` | 2K, 8K (50) | WildChat-1M, English, not toxic, not redacted, 2+ user turns | natural length: the conversation up to its last user turn |
 | `agent` | 8K, 16K (50), 32K (25) | SWE-agent trajectories (nebius) | natural length: a real trace cut before an assistant turn |
 | `eq_*` | 8K (50 each) | the 2K mdqa and fewshot items | the padding test, section 5 |
-| `mix` | mix (64) | QA 2K and 32K alternating | load cells with mixed lengths in one batch |
+| `mix` | mix (64) | QA 2K and 32K alternating, each document once | load cells with mixed lengths in one batch (28 Nov: 23 of 52 rows had paired a 2K prompt with the 32K prompt of the same document, a prefix-cache hit; now no document appears twice) |
+| `sb_mt`, `sb_trans`, `sb_summ`, `sb_qa`, `sb_math`, `sb_rag` | nat (78 each) | Spec-Bench, pinned to commit fd2c1cd and the file's sha256 | natural; MT-bench first turns only (a second turn needs the model's own first answer) (added 28 Nov) |
 | `synth` | 2K, 8K, 16K (58), 32K (30) | LongBench v2 documents, all six domains | DeepSeek-written instructions across six copy levels (section 6) |
 | `codeedit_ai` | 2K, 8K, 16K (50) | the `codeedit` excerpts | DeepSeek-written edit requests |
 | `twins_real`, `twins_ai` | nat (50 each) | WildChat single-turn requests; DeepSeek twins of them | the synthetic-prompt test (section 6) |
@@ -165,15 +209,22 @@ pieces replace the guesses.
 
 | Tier | Pieces | Est. GPU time | What it answers |
 |---|---|---|---|
-| S | 1 | 15 min | Does chat mode work on DeltaAI (template, stop ids, per-request acceptance)? |
-| 0 | 42 | about 13.7 h | Does the crossover survive the chat format? Where is the switch point at 16K? Do tasks flip the winner at 16K or 32K? How does load move it? |
-| 1 | 23 | about 9.1 h | Does the instruction change the winner on one document? Code edits, real chats, agent traces; the padding test |
-| 2 | 14 | about 6 h | AI-written prompts across copy levels; LLM padding; synthetic against real prompts |
-| 3 | 13 | about 4.5 h | Tasks under load, mixed-length batches, thinking on |
+| S | 1 | 17 min | Does chat mode work on DeltaAI (template, stop ids, per-request acceptance, logprobs)? |
+| 0 | 42 | about 15 h | Does the crossover survive the chat format? Where is the switch point at 16K? Do tasks flip the winner at 16K or 32K? How does load move it? |
+| 1 | 33 | about 14 h | Does the instruction change the winner on one document? Code edits, real chats, agent traces, Spec-Bench's six categories; the padding test |
+| 2 | 15 | about 7 h | AI-written prompts across copy levels; LLM padding; synthetic against real prompts |
+| 3 | 13 | about 5 h | Tasks under load, mixed-length batches, thinking on |
 
 Every piece fits a 30-minute or 1-hour walltime (short limits start sooner on
 ghx4; LOG, 18 Nov): the heaviest pieces are split into a `t` piece and an
-`a` piece. Total about 34 GPU-hours.
+`a` piece. Total about 41 GPU-hours (104 pieces). The model overestimates:
+against the dtai2 off arms at 256 tokens it predicts 33% too much time at 2K
+and almost twice the time at 32K, so the real figure is likely lower.
+
+**Charges.** Pieces that `dtai3_feeder.sh` moves to ghx4-interactive are
+charged at twice the GPU-hour rate (qos_ghx4int, LOG 18 Nov), so 41 GPU-hours
+can cost up to 82 charged hours if everything goes through the feeder. Check
+the balance with `accounts` before submitting tiers 2 and 3.
 
 **Suggested split:** Devansh runs S and 0; Sahil runs 1 on identical inputs:
 either `LADDER_ROUTER=/work/nvme/bikd/dagraw2/Speculative_Ladder/data/router`
@@ -215,7 +266,11 @@ Smoke checklist (log `$LADDER_ROOT/logs/dtai3-smoke-<job>.out`):
   `gh200r_qa_2K_a_psmoke` 4 (one per arm);
 - `finished_stop` close to 4 in each row (most answers end on their own) and
   `gen_tokens` well under 4 x 1024;
-- in the `a` rows, `per_request_spec_seen` is 4.
+- in the `a` rows, `per_request_spec_seen` is 4;
+- `gh200r_qa_2K_l_psmoke` has 1 row with `logprobs_seen` 4, and its
+  `perreq_*.json` holds `logprobs.chosen` lists as long as `gen_tokens`, with
+  no `error` key (if vLLM 0.33.0 on Model Runner V2 refuses logprobs, only
+  the `l` cells fail; everything else is unaffected).
 
 Then tier 0, with the feeder moving waiting pieces through ghx4-interactive:
 
@@ -233,6 +288,7 @@ GPU job:
 ```bash
 read -rs DEEPSEEK_API_KEY && export DEEPSEEK_API_KEY
 "$BPY" gen_router_ai.py --dry-run
+"$BPY" gen_router_ai.py --limit 1     # a one-request-per-file pilot: all ok?
 "$BPY" gen_router_ai.py
 "$BPY" build_router_workloads.py --only ai
 bash submit_dtai3.sh TIERS=2 GO=1
@@ -276,6 +332,21 @@ bash push_dtai3.sh "results: dtai3 tier 0 pieces <job ids>"
   `<|im_start|>user ... <|im_start|>assistant` with the empty think block when
   thinking is off, and stop ids 151645 and 151643.
 
+- A third pass on 28 Nov (after section 1b's reading) found and fixed:
+  `mix` paired a 2K and a 32K prompt of the same document in 23 of its first
+  52 rows (a partial prefix-cache hit on the 32K prefill); `gen_router_ai.py`
+  did not turn off deepseek-flash's thinking mode, which DeepSeek's docs now
+  make the default (reasoning would have used `max_tokens` before the JSON;
+  it now sends `"thinking": {"type": "disabled"}`, and the mock API rejects a
+  request without it); per-request files would have added hundreds of MB of
+  JSON to the repository (`push_dtai3.sh` now gzips them). Added: the `l`
+  cell (harness v5d `--logprobs`, off arm only), Spec-Bench. Five pieces that
+  then needed 2 hours were split. Harness v5d had produced no row before this
+  change, so it was changed in place (version `v5d-2026-11-28`) rather than
+  copied. Checked: the rebuilt `mix` uses 66 distinct documents, Spec-Bench
+  builds 80 rows per category, `test_dtai3.sh` 59 of 59, `test_dtai2.sh` 116
+  of 116, a pilot of `gen_router_ai.py` against the mock (10 of 10).
+
 ## 10. Known limits
 
 - Not observed on a GH200: token-id prompts and `stop_token_ids` through vLLM
@@ -289,6 +360,13 @@ bash push_dtai3.sh "results: dtai3 tier 0 pieces <job ids>"
   runs. They are filtered (English, not flagged toxic, not redacted) but not
   read by hand; dataset licences were not checked beyond their cards.
 - 25 prompts at 32K, as before.
+- `agent` rows share SWE-agent's system prompt, so with prefix caching on
+  (the default) every agent prefill reuses it. That is how an agent is served,
+  and it is the same for every arm, so it is kept.
+- The `l` cell's confidence comes from the off arm. Under lossless greedy
+  decoding the speculative arms write the same tokens, so it applies to them
+  up to the first divergence (n-gram k 11 and DFlash k 15 diverged from greedy
+  on the GH200 in dtai2; the open question to Sahil is why).
 - Thinking on with greedy decoding can loop until the 2,048-token cap (Qwen
   recommends sampling for thinking mode). The `tT` and `aT` cells are timing
   and acceptance measurements, not answer quality; check `finished_stop`

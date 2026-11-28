@@ -70,6 +70,35 @@ directory overwrites the first.
 
 ---
 
+## 28 Nov 2026: dtai3 third check; a logprob cell and Spec-Bench added
+
+**Why.** Before queueing, a line-by-line check, and a look at what recent
+drafter-routing work trains on (note section 1b). SpecRouter (NeurIPS 2026)
+and WhiFlash (EMNLP 2026 Findings) both route per draft-verify step, because
+the best drafter changes inside one answer; that is a likely reason our
+per-prompt router found no signal. A step-level router needs the target's
+confidence at each position, which no row carried.
+
+**Added.** Harness v5d `--logprobs N` (off arm only; v5d had produced no row,
+so it was changed in place, version `v5d-2026-11-28`); the `l` and `lT` cells
+(the off arm with top-5 logprobs at every generated position) beside every
+acceptance cell; Spec-Bench's six categories as `sb_*` workloads (translation
+and math were in no dtai3 workload). 104 pieces, about 41 GPU-hours by the
+rough model, which overestimates (33% at 2K against the dtai2 off arms).
+
+**Fixed.** `mix` paired a 2K and a 32K prompt of the same document in 23 of
+52 rows (now each document once); `gen_router_ai.py` left deepseek-flash's
+thinking mode on, now the default per DeepSeek's docs (reasoning would have
+spent `max_tokens`; now `"thinking": {"type": "disabled"}`); `push_dtai3.sh`
+now gzips per-request files. Five pieces that needed 2 hours were split.
+
+**Checked.** `test_dtai3.sh` 59 of 59 with the real tokenizer, `test_dtai2.sh`
+116 of 116, `gen_router_ai.py` pilot against a mock that rejects thinking on
+(10 of 10), rebuilt `mix` and `sb_*` audited.
+
+**Next.** On DeltaAI: build, smoke piece (now `t a l`), then tiers. Note that
+pieces moved by the feeder are charged at twice the rate.
+
 ## 25 Nov 2026: router data job set (dtai3) built, not submitted
 
 **Why.** The 24 Nov reports found that every prompt measured so far was sent

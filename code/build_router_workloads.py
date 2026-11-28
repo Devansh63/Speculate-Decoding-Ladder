@@ -751,14 +751,73 @@ def build_eqtest(S, tok, built):
 
 def build_mix(built):
     a, b = built[("qa", "2K")], built[("qa", "32K")]
-    rows = []
-    # The same LongBench v2 document can be in both buckets, so ids get the
-    # bucket in front: per-request records are joined on _id.
+    # A QA prompt starts with the head of its document, so a 2K prompt and a 32K
+    # prompt of one document share their first 2K tokens, and in one batch the
+    # second would find them in the prefix cache (28 Nov check: 23 of the first
+    # 52 rows did). Use each document once: 33 at 32K, then 33 others at 2K.
+    head = lambda r: r["context"][:1000]
+    used, A, B = set(), [], []
+    for src, dst in ((b, B), (a, A)):
+        for r in src:
+            if len(dst) == 33:
+                break
+            if head(r) not in used:
+                used.add(head(r))
+                dst.append(r)
+    if len(A) < 33 or len(B) < 33:
+        sys.exit(f"mix: only {len(A)} 2K and {len(B)} 32K prompts with distinct documents")
+    # ids get the bucket in front: per-request records are joined on _id.
     tag = lambda r, k: dict(r, _id=f"{k}:{r['_id']}", base_id=r["_id"], workload="mix", bucket="mix", length=k)
-    for x, y in zip(a[:32], b[:32]):
+    rows = []
+    for x, y in zip(A, B):
         rows += [tag(x, "2K"), tag(y, "32K")]
-    rows += [tag(a[32], "2K"), tag(b[32], "32K")]
     return {("mix", "mix"): rows}
+
+
+# ---------------------------------------------------------------- Spec-Bench (added 28 Nov)
+
+# Spec-Bench (Xia et al., 2024), the standard speculative-decoding benchmark:
+# 80 prompts each of MT-bench (first turns), translation, summarization, QA,
+# math reasoning and RAG. Two of these kinds are in no other workload here:
+# translation (output copies almost nothing from the prompt) and math. Pinned
+# to one commit and one file hash, natural length, nothing cut or added.
+SPECBENCH_URL = ("https://raw.githubusercontent.com/hemingkx/Spec-Bench/"
+                 "fd2c1cd7d2201ef71db4c5f4e455008f017967bf/data/spec_bench/question.jsonl")
+SPECBENCH_SHA256 = "4b6d33e79484f9841c487ee87d1cf6aa8c6066f61d5d482ff09e5a007fafdf04"
+SPECBENCH_WL = {"mt_bench": "sb_mt", "translation": "sb_trans", "summarization": "sb_summ",
+                "qa": "sb_qa", "math_reasoning": "sb_math", "rag": "sb_rag"}
+
+
+def specbench_file(args):
+    if args.specbench:
+        p = args.specbench
+    else:
+        p = os.path.join(args.cache, "spec_bench", "question.jsonl")
+        if not os.path.exists(p):
+            import urllib.request
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            urllib.request.urlretrieve(SPECBENCH_URL, p + ".part")
+            os.replace(p + ".part", p)
+    got = hashlib.sha256(open(p, "rb").read()).hexdigest()
+    if got != SPECBENCH_SHA256:
+        sys.exit(f"Spec-Bench file {p} has sha256 {got}, expected {SPECBENCH_SHA256}")
+    return p
+
+
+def build_specbench(S, tok):
+    out = {}
+    for line in open(specbench_file(S.args), encoding="utf-8"):
+        if not line.strip():
+            continue
+        d = json.loads(line)
+        cat = d["category"] if d["category"] in SPECBENCH_WL else "mt_bench"
+        wl = SPECBENCH_WL[cat]
+        ctx = d["turns"][0]
+        out.setdefault((wl, "nat"), []).append(row(
+            _id=f"sb:{d['question_id']}", workload=wl, task=cat, domain=d["category"], bucket="nat",
+            construction="natural_length", source=f"hemingkx/Spec-Bench@fd2c1cd:{d['category']}",
+            target_tokens=0, prompt_tokens=tok.n(ctx), context=ctx))
+    return out
 
 
 # ---------------------------------------------------------------- AI requests and assembly
@@ -912,7 +971,8 @@ def assemble_ai(S, tok, built, out_root):
 
 GROUPS = {"qa": ["qa"], "tasks": ["code", "summ", "fewshot", "mdqa"], "ragquote": ["ragquote"],
           "codeedit": ["codeedit"], "chat": ["chat"], "agent": ["agent"], "eqtest": ["eq"],
-          "twins": ["twins_real"], "mix": ["mix"], "ai": ["synth", "codeedit_ai", "eq_llm", "twins_ai"]}
+          "twins": ["twins_real"], "mix": ["mix"], "ai": ["synth", "codeedit_ai", "eq_llm", "twins_ai"],
+          "specbench": list(SPECBENCH_WL.values())}
 
 
 def main():
@@ -922,7 +982,8 @@ def main():
     ap.add_argument("--zip", help="a local LongBench data.zip")
     ap.add_argument("--v2", help="a local LongBench-v2 data.json")
     ap.add_argument("--cache", help="Hugging Face dataset cache (default $LADDER_ROOT/hf/datasets)")
-    ap.add_argument("--only", default="qa tasks ragquote codeedit chat agent eqtest twins mix ai",
+    ap.add_argument("--specbench", help="a local Spec-Bench question.jsonl (default: download, pinned)")
+    ap.add_argument("--only", default="qa tasks ragquote codeedit chat agent eqtest twins mix specbench ai",
                     help="groups: " + " ".join(GROUPS))
     ap.add_argument("--wildchat-shards", type=int, default=2)
     ap.add_argument("--swe-shards", type=int, default=2)
@@ -970,6 +1031,9 @@ def main():
         built.update(build_eqtest(S, tok, built))
     if "mix" in groups:
         built.update(build_mix(built))
+    if "specbench" in groups:
+        print("building specbench ...", flush=True)
+        built.update(build_specbench(S, tok))
     notes = []
     if "ai" in groups:
         n = ai_requests(tok, built, S, out_root) if not args.check else {}

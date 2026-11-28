@@ -25,6 +25,9 @@
 #   PERREQ                none|summary|detailed     default none
 #   PC                    on|off (prefix caching)   default: engine default (on)
 #   SKIP_OFF              1 to skip the off arm
+#   LOGPROBS              N: the off arm alone, recording the target's top-N
+#                         logprobs per position (harness --logprobs); needs
+#                         K_NGRAM_GPU="" and K_DFLASH="" (added 28 Nov)
 #   K_NGRAM_GPU K_DFLASH  k lists; "" drops the rung
 #   LADDER_OUT LADDER_DATA LADDER_VENV LADDER_HF LADDER_CACHE   mandatory
 
@@ -70,6 +73,13 @@ fi
 XARGS="--prompt-format $PFORMAT --prompt-style $PSTYLE --max-model-len $MAXLEN"
 [ "$PFORMAT" = "chat" ] && XARGS="$XARGS --thinking $THINK"
 [ -n "${PERREQ:-}" ] && [ "$PERREQ" != "none" ] && XARGS="$XARGS --per-request-spec $PERREQ"
+if [ -n "${LOGPROBS:-}" ] && [ "$LOGPROBS" != "0" ]; then
+  case "$LOGPROBS" in *[!0-9]*) echo "ABORT: LOGPROBS='$LOGPROBS' must be a number."; exit 1 ;; esac
+  if [ -n "$K_NGRAM_GPU$K_DFLASH" ] || [ "${SKIP_OFF:-0}" = "1" ]; then
+    echo "ABORT: LOGPROBS is an off-arm-only cell: set K_NGRAM_GPU=\"\" K_DFLASH=\"\" and no SKIP_OFF."; exit 1
+  fi
+  XARGS="$XARGS --logprobs $LOGPROBS"
+fi
 case "${PC:-}" in
   "") ;;
   on) XARGS="$XARGS --prefix-caching" ;;

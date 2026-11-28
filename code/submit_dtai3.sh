@@ -24,7 +24,8 @@
 #      and fills 16K, where the switch point is
 #   1  copy-varying request types from real text: RAG with four instructions
 #      over one document, code edits, multi-turn WildChat, SWE-agent traces,
-#      and the padding test (real padding and repeated-sentence padding at 8K)
+#      the padding test (real padding and repeated-sentence padding at 8K),
+#      and Spec-Bench's six categories (translation and math are nowhere else)
 #   2  AI-written prompts (needs gen_router_ai.py and DEEPSEEK_API_KEY first):
 #      instructions over real documents across copy levels, DeepSeek-written
 #      code edits, LLM padding for the padding test, twins of real chats
@@ -44,13 +45,13 @@ PART=${PART:-ghx4}
 
 # tier|piece|workload|bucket|cells|lim1 (optional)
 PIECES='
-S|smoke|qa|2K|t a|4
-0|qa2|qa|2K|t a|
-0|qa8|qa|8K|t a|
+S|smoke|qa|2K|t a l|4
+0|qa2|qa|2K|t a l|
+0|qa8|qa|8K|t a l|
 0|qa16t|qa|16K|t|
-0|qa16a|qa|16K|a|
+0|qa16a|qa|16K|a l|
 0|qa32t|qa|32K|t|
-0|qa32a|qa|32K|a|
+0|qa32a|qa|32K|a l|
 0|qa2La|qa|2K|c4 c8|
 0|qa2Lb|qa|2K|c16 c32|
 0|qa8La|qa|8K|c4|
@@ -61,69 +62,80 @@ S|smoke|qa|2K|t a|4
 0|qa32La|qa|32K|c2|
 0|qa32Lb|qa|32K|c4|
 0|qa32Lc|qa|32K|c8|
-0|code2|code|2K|t a|
-0|code8|code|8K|t a|
+0|code2|code|2K|t a l|
+0|code8|code|8K|t a l|
 0|code16t|code|16K|t|
-0|code16a|code|16K|a|
+0|code16a|code|16K|a l|
 0|code32t|code|32K|t|
-0|code32a|code|32K|a|
+0|code32a|code|32K|a l|
 0|summ2t|summ|2K|t|
-0|summ2a|summ|2K|a|
+0|summ2a|summ|2K|a l|
 0|summ8t|summ|8K|t|
-0|summ8a|summ|8K|a|
+0|summ8a|summ|8K|a l|
 0|summ16t|summ|16K|t|
-0|summ16a|summ|16K|a|
+0|summ16a|summ|16K|a l|
 0|summ32t|summ|32K|t|
-0|summ32a|summ|32K|a|
-0|fewshot2|fewshot|2K|t a|
-0|fewshot8|fewshot|8K|t a|
+0|summ32a|summ|32K|a l|
+0|fewshot2|fewshot|2K|t a l|
+0|fewshot8|fewshot|8K|t a l|
 0|fewshot16t|fewshot|16K|t|
-0|fewshot16a|fewshot|16K|a|
+0|fewshot16a|fewshot|16K|a l|
 0|fewshot32t|fewshot|32K|t|
-0|fewshot32a|fewshot|32K|a|
-0|mdqa2|mdqa|2K|t a|
-0|mdqa8|mdqa|8K|t a|
+0|fewshot32a|fewshot|32K|a l|
+0|mdqa2|mdqa|2K|t a l|
+0|mdqa8|mdqa|8K|t a l|
 0|mdqa16t|mdqa|16K|t|
-0|mdqa16a|mdqa|16K|a|
+0|mdqa16a|mdqa|16K|a l|
 0|mdqa32t|mdqa|32K|t|
-0|mdqa32a|mdqa|32K|a|
-1|rq2|ragquote|2K|t a|62
-1|rq8|ragquote|8K|t a|62
+0|mdqa32a|mdqa|32K|a l|
+1|rq2|ragquote|2K|t a l|62
+1|rq8|ragquote|8K|t a l|62
 1|rq16t|ragquote|16K|t|62
-1|rq16a|ragquote|16K|a|62
+1|rq16a|ragquote|16K|a l|62
 1|rq32t|ragquote|32K|t|46
-1|rq32a|ragquote|32K|a|46
-1|ce0|codeedit|nat|t a|
-1|ce2|codeedit|2K|t a|
+1|rq32a|ragquote|32K|a l|46
+1|ce0t|codeedit|nat|t|
+1|ce0a|codeedit|nat|a l|
+1|ce2t|codeedit|2K|t|
+1|ce2a|codeedit|2K|a l|
 1|ce8t|codeedit|8K|t|
-1|ce8a|codeedit|8K|a|
+1|ce8a|codeedit|8K|a l|
 1|ce16t|codeedit|16K|t|
-1|ce16a|codeedit|16K|a|
-1|chat2|chat|2K|t a|
-1|chat8|chat|8K|t a|
-1|ag8|agent|8K|t a|
+1|ce16a|codeedit|16K|a l|
+1|chat2|chat|2K|t a l|
+1|chat8t|chat|8K|t|
+1|chat8a|chat|8K|a l|
+1|ag8|agent|8K|t a l|
 1|ag16t|agent|16K|t|
-1|ag16a|agent|16K|a|
+1|ag16a|agent|16K|a l|
 1|ag32t|agent|32K|t|
-1|ag32a|agent|32K|a|
-1|eqmdR|eq_mdqa_realpad|8K|t a|
-1|eqmdX|eq_mdqa_repeatpad|8K|t a|
-1|eqfsR|eq_fewshot_realpad|8K|t a|
-1|eqfsX|eq_fewshot_repeatpad|8K|t a|
-2|syn2|synth|2K|t a|58
-2|syn8|synth|8K|t a|58
+1|ag32a|agent|32K|a l|
+1|eqmdR|eq_mdqa_realpad|8K|t a l|
+1|eqmdX|eq_mdqa_repeatpad|8K|t a l|
+1|eqfsR|eq_fewshot_realpad|8K|t a l|
+1|eqfsX|eq_fewshot_repeatpad|8K|t a l|
+1|sbmtt|sb_mt|nat|t|78
+1|sbmta|sb_mt|nat|a l|78
+1|sbtr|sb_trans|nat|t a l|78
+1|sbsu|sb_summ|nat|t a l|78
+1|sbqa|sb_qa|nat|t a l|78
+1|sbma|sb_math|nat|t a l|78
+1|sbrg|sb_rag|nat|t a l|78
+2|syn2|synth|2K|t a l|58
+2|syn8t|synth|8K|t|58
+2|syn8a|synth|8K|a l|58
 2|syn16t|synth|16K|t|58
-2|syn16a|synth|16K|a|58
+2|syn16a|synth|16K|a l|58
 2|syn32t|synth|32K|t|30
-2|syn32a|synth|32K|a|30
-2|cea2|codeedit_ai|2K|t a|
-2|cea8|codeedit_ai|8K|t a|
+2|syn32a|synth|32K|a l|30
+2|cea2|codeedit_ai|2K|t a l|
+2|cea8|codeedit_ai|8K|t a l|
 2|cea16t|codeedit_ai|16K|t|
-2|cea16a|codeedit_ai|16K|a|
-2|eqmdL|eq_mdqa_llmpad|8K|t a|
-2|eqfsL|eq_fewshot_llmpad|8K|t a|
-2|twR|twins_real|nat|t a|
-2|twA|twins_ai|nat|t a|
+2|cea16a|codeedit_ai|16K|a l|
+2|eqmdL|eq_mdqa_llmpad|8K|t a l|
+2|eqfsL|eq_fewshot_llmpad|8K|t a l|
+2|twR|twins_real|nat|t a l|
+2|twA|twins_ai|nat|t a l|
 3|code2L|code|2K|c16 c32|
 3|summ2L|summ|2K|c16 c32|
 3|fewshot2L|fewshot|2K|c16 c32|
@@ -134,9 +146,9 @@ S|smoke|qa|2K|t a|4
 3|mdqa8L|mdqa|8K|c16|
 3|mixL|mix|mix|c8 c16|
 3|qa2Tt|qa|2K|tT|
-3|qa2Ta|qa|2K|aT|
+3|qa2Ta|qa|2K|aT lT|
 3|qa8Tt|qa|8K|tT|
-3|qa8Ta|qa|8K|aT|
+3|qa8Ta|qa|8K|aT lT|
 '
 
 miss=0
@@ -171,7 +183,8 @@ P = {"nat": 0.05, "2K": 0.15, "8K": 0.6, "16K": 1.4, "32K": 3.5, "mix": 1.8}[b]
 tok = {"nat": 0.0075, "2K": 0.0075, "8K": 0.008, "16K": 0.009, "32K": 0.011, "mix": 0.009}[b]
 out = {"qa": 450, "code": 150, "summ": 700, "fewshot": 60, "mdqa": 30, "ragquote": 300, "codeedit": 600,
        "codeedit_ai": 450, "chat": 500, "agent": 250, "synth": 400, "twins_real": 500, "twins_ai": 500,
-       "mix": 450}.get(wl, 30 if "mdqa" in wl else 60 if "fewshot" in wl else 400)
+       "mix": 450, "sb_mt": 600, "sb_trans": 60, "sb_summ": 250, "sb_qa": 120, "sb_math": 300,
+       "sb_rag": 250}.get(wl, 30 if "mdqa" in wl else 60 if "fewshot" in wl else 400)
 d1 = 25 if b == "32K" else 50
 n1 = min(int(lim1) if lim1 else d1, rows - 2)
 dl = {"2K": 128, "8K": 128, "32K": 48}.get(b, 64)
@@ -188,6 +201,10 @@ for c in cells:
         o = 1800 if c == "aT" else out
         n = min(25, rows - 2) if c == "aT" else n1
         m += 4 * load + n * (P + o * tok) * (4 / 1.6) / 60
+    elif c in ("l", "lT"):  # the off arm alone, with logprobs
+        o = 1800 if c == "lT" else out
+        n = min(25, rows - 2) if c == "lT" else n1
+        m += load + n * (P + o * tok) * 1.1 / 60
     elif c.startswith("c"):
         k = int(c[1:])
         arm = nl * P + nl * out * tok / (0.8 * k)
