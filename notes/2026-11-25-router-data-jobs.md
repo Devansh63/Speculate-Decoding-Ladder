@@ -242,6 +242,7 @@ the default two WildChat and two SWE-agent shards, and takes 5 to 20 minutes):
 ssh dagraw2@dtai-login.delta.ncsa.illinois.edu
 tmux new -s build
 cd /work/nvme/bikd/dagraw2/Speculative_Ladder/repo && git pull && cd code
+export LADDER_VENV=/work/nvme/bikd/ssashi/Speculative_Ladder/vllm033_gh200   # the venv every dtai2 job used
 PROJ=bikd ACCOUNT=bikd-dtai-gh source deltaai_env.sh
 "$LADDER_VENV/bin/python3" -c "import transformers, pyarrow, huggingface_hub" || { "$LADDER_VENV/bin/python3" -m venv "$LADDER_ROOT/buildenv" && "$LADDER_ROOT/buildenv/bin/pip" install -q transformers pyarrow huggingface_hub; }
 BPY=$( "$LADDER_VENV/bin/python3" -c "import transformers, pyarrow" 2>/dev/null && echo "$LADDER_VENV/bin/python3" || echo "$LADDER_ROOT/buildenv/bin/python3" )
@@ -250,7 +251,12 @@ BPY=$( "$LADDER_VENV/bin/python3" -c "import transformers, pyarrow" 2>/dev/null 
 PATH="$(dirname "$BPY"):$PATH" QWEN_TOK=$LADDER_HF/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218 bash test_dtai3.sh
 ```
 
-(The build venv exists so the measurement venv is never changed by a
+(`LADDER_VENV`: Devansh has no venv of his own on DeltaAI; every dtai2 job ran
+on Sahil's, as every dtai2 log records, and the dtai3 jobs must use the same
+binary for their ratios to sit beside dtai2's. `deltaai_env.sh` keeps a
+`LADDER_VENV` that is already set. Sahil leaves the line out.
+
+The build venv exists so the measurement venv is never changed by a
 `pip install`. The `PATH` prefix gives the test the python that has
 `transformers`.)
 
